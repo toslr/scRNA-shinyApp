@@ -107,42 +107,68 @@ ui <- fluidPage(
   )
 )
 
-# Server remains the same
 server <- function(input, output, session) {
   # Chain the reactive values through the modules
   seurat_data <- dataInputServer("dataInput")
   processed_seurat <- qcServer("qc", seurat_data)
   clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat)
-  de_results <- deAnalysisServer("de", clustered_seurat)
+  de_module <- deAnalysisServer("de", clustered_seurat)  # Now returns a list
   
   # Create reactive values to track completion of each step
-  steps_completed <- reactiveVal(list(
+  steps_completed <- reactiveValues(
     data_input = FALSE,
     qc = FALSE,
     dimred = FALSE,
-    clustering = FALSE
-  ))
+    clustering = FALSE,
+    de = FALSE
+  )
   
-  # Update step completion status
+  # Data input completion
   observe({
-    current_steps <- steps_completed()
-    
     if (!is.null(seurat_data())) {
-      current_steps$data_input <- TRUE
+      steps_completed$data_input <- TRUE
+    } else {
+      steps_completed$data_input <- FALSE
     }
+  })
+  
+  # QC completion
+  observe({
     if (!is.null(processed_seurat())) {
-      current_steps$qc <- TRUE
+      steps_completed$qc <- TRUE
+    } else {
+      steps_completed$qc <- FALSE
     }
+  })
+  
+  # Dimension reduction completion
+  observe({
     if (!is.null(clustered_seurat()) && 
         "umap" %in% names(clustered_seurat()@reductions)) {
-      current_steps$dimred <- TRUE
+      steps_completed$dimred <- TRUE
+    } else {
+      steps_completed$dimred <- FALSE
     }
+  })
+  
+  # Clustering completion
+  observe({
     if (!is.null(clustered_seurat()) && 
         "seurat_clusters" %in% colnames(clustered_seurat()@meta.data)) {
-      current_steps$clustering <- TRUE
+      steps_completed$clustering <- TRUE
+    } else {
+      steps_completed$clustering <- FALSE
     }
-    
-    steps_completed(current_steps)
+  })
+  
+  # DE completion
+  observe({
+    if (!is.null(de_module$status()) && 
+        de_module$status() == "completed") {
+      steps_completed$de <- TRUE
+    } else {
+      steps_completed$de <- FALSE
+    }
   })
   
   # Conditional section renders
@@ -173,40 +199,39 @@ server <- function(input, output, session) {
   
   # Dynamic task list
   output$taskList <- renderUI({
-    current_steps <- steps_completed()
-    
     tasks <- tags$ul(class = "nav nav-pills nav-stacked",
                      style = "margin-top: 10px;")
     
     # Show QC link if data is loaded
-    if (current_steps$data_input) {
+    if (steps_completed$data_input) {
       tasks <- tagAppendChild(tasks,
-                              tags$li(class = if(current_steps$qc) "active" else "",
+                              tags$li(class = if(steps_completed$qc) "active" else "",
                                       tags$a(href = "javascript:void(0)",
                                              onclick = "scrollToSection('qc-section')",
                                              "Quality Control",
-                                             if(current_steps$qc) tags$span(class="badge", "✓"))
+                                             if(steps_completed$qc) tags$span(class="badge", "✓"))
                               ))
     }
     
     # Show dimension reduction link if QC is done
-    if (current_steps$qc) {
+    if (steps_completed$qc) {
       tasks <- tagAppendChild(tasks,
-                              tags$li(class = if(current_steps$dimred) "active" else "",
+                              tags$li(class = if(steps_completed$dimred) "active" else "",
                                       tags$a(href = "javascript:void(0)",
                                              onclick = "scrollToSection('dimred-section')",
                                              "Dimension Reduction",
-                                             if(current_steps$dimred) tags$span(class="badge", "✓"))
+                                             if(steps_completed$dimred) tags$span(class="badge", "✓"))
                               ))
     }
     
     # Show DE link if clustering is done
-    if (current_steps$clustering) {
+    if (steps_completed$clustering) {
       tasks <- tagAppendChild(tasks,
-                              tags$li(
-                                tags$a(href = "javascript:void(0)",
-                                       onclick = "scrollToSection('de-section')",
-                                       "Differential Expression")
+                              tags$li(class = if(steps_completed$de) "active" else "",
+                                      tags$a(href = "javascript:void(0)",
+                                             onclick = "scrollToSection('de-section')",
+                                             "Differential Expression",
+                                             if(steps_completed$de) tags$span(class="badge", "✓"))
                               ))
     }
     

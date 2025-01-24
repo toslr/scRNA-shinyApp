@@ -1,7 +1,6 @@
 qcUI <- function(id) {
   ns <- NS(id)
   tagList(
-    textOutput(ns("qcText")),
     plotOutput(ns("qcPlot"), height = "600px"),
     uiOutput(ns("filterControls"))
   )
@@ -10,11 +9,6 @@ qcUI <- function(id) {
 qcServer <- function(id, seurat_data) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-    
-    output$qcText <- renderText({
-      req(seurat_data())
-      "Quality control"
-    })
     
     output$qcPlot <- renderPlot({
       req(seurat_data())

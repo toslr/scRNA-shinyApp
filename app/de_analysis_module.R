@@ -1,3 +1,5 @@
+# de_analysis_module.R
+
 deAnalysisUI <- function(id) {
   ns <- NS(id)
   # Initially show nothing, content will be rendered conditionally
@@ -44,6 +46,8 @@ deAnalysisServer <- function(id, clustered_seurat) {
     
     # Reactive value to store current DE results
     de_genes <- reactiveVal()
+    # Reactive value to track whether DE was run
+    de_status <- reactiveVal(NULL)
     
     # One vs All analysis
     observeEvent(input$runDEAll, {
@@ -58,6 +62,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
         de_results$gene <- clustered_seurat()@misc$gene_mapping[rownames(de_results)]
         de_results$comparison <- paste("Cluster", input$targetClusterAll, "vs All")
         de_genes(de_results)
+        de_status("completed")
       })
     })
     
@@ -77,6 +82,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
         de_results$comparison <- paste("Cluster", input$targetCluster1, 
                                        "vs Cluster", input$targetCluster2)
         de_genes(de_results)
+        de_status("completed")
       })
     })
     
@@ -106,5 +112,11 @@ deAnalysisServer <- function(id, clustered_seurat) {
         DT::formatSignif(columns = c("p_val", "p_val_adj"), digits = 3) %>%
         DT::formatRound(columns = c("avg_log2FC"), digits = 2)
     })
+    
+    # Return both the results and status
+    return(list(
+      results = de_genes,
+      status = de_status
+    ))
   })
 }
