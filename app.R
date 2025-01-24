@@ -1,3 +1,6 @@
+# app.R
+
+# Load required libraries
 library(shiny)
 library(patchwork)
 library(shinyFiles)
@@ -8,18 +11,26 @@ library(ggplot2)
 library(scCustomize)
 library(shinyjs)
 
+# Source all module files
 source("app/data_input_module.R")
 source("app/qc_module.R")
 source("app/dimension_reduction_module.R")
 source("app/de_analysis_module.R")
 
-
-# Custom JS for smooth scrolling
+# Custom JS for smooth scrolling with offset
 jscode <- "
 function scrollToSection(sectionId) {
-  document.getElementById(sectionId).scrollIntoView({ 
-    behavior: 'smooth', 
-    block: 'start' 
+  const element = document.getElementById(sectionId);
+  const topBar = document.getElementById('topbar');
+  const topBarHeight = topBar.offsetHeight;
+  const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
+  
+  // Add 20px extra padding
+  const offsetPosition = elementPosition - topBarHeight - 20;
+
+  window.scrollTo({
+    top: offsetPosition,
+    behavior: 'smooth'
   });
 }
 "
@@ -46,10 +57,10 @@ ui <- fluidPage(
       }
       #sidebar {
         position: fixed;
-        top: 60px;  /* Start below topbar */
+        top: 60px;
         left: 0;
         width: 20%;
-        height: calc(100vh - 60px);  /* Full height minus topbar */
+        height: calc(100vh - 60px);
         overflow-y: auto;
         padding: 15px;
         background-color: #f5f5f5;
@@ -57,9 +68,13 @@ ui <- fluidPage(
       }
       #main-content {
         margin-left: 20%;
-        margin-top: 60px;  /* Start below topbar */
+        margin-top: 60px;
         padding: 15px;
         width: 80%;
+      }
+      .section-header {
+        padding-top: 30px;
+        margin-bottom: 20px;
       }
       .nav-pills > li > a {
         padding: 8px 15px;
@@ -112,7 +127,7 @@ server <- function(input, output, session) {
   seurat_data <- dataInputServer("dataInput")
   processed_seurat <- qcServer("qc", seurat_data)
   clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat)
-  de_module <- deAnalysisServer("de", clustered_seurat)  # Now returns a list
+  de_module <- deAnalysisServer("de", clustered_seurat)
   
   # Create reactive values to track completion of each step
   steps_completed <- reactiveValues(
@@ -175,7 +190,7 @@ server <- function(input, output, session) {
   output$qcSection <- renderUI({
     req(seurat_data())
     div(id = "qc-section",
-        h3("Quality Control"),
+        h3(class = "section-header", "Quality Control"),
         qcUI("qc")
     )
   })
@@ -183,7 +198,7 @@ server <- function(input, output, session) {
   output$dimredSection <- renderUI({
     req(processed_seurat())
     div(id = "dimred-section",
-        h3("Dimension Reduction"),
+        h3(class = "section-header", "Dimension Reduction"),
         dimensionReductionUI("dimRed")
     )
   })
@@ -192,7 +207,7 @@ server <- function(input, output, session) {
     req(clustered_seurat())
     req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
     div(id = "de-section",
-        h3("Differential Expression"),
+        h3(class = "section-header", "Differential Expression"),
         deAnalysisUI("de")
     )
   })
