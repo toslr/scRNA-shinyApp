@@ -21,6 +21,16 @@ buildUI <- function() {
           div(
             id = "navigation-panel",
             uiOutput("taskList")
+          ),
+          div(
+            id= "copyright",
+            tags$hr(),
+            p("© Tom Soulaire",
+              style = "text-align: left; color: #666; font-size: 0.9em; margin-bottom: 5px;"),
+            p("Zuchero Lab",
+              style = "text-align: left; color: #666; font-size: 0.9em; margin-bottom: 5px;"),
+            p("Stanford University",
+              style = "text-align: left; color: #666; font-size: 0.9em; margin-bottom: 5px;")
           )
       ),
       # Scrollable main content
