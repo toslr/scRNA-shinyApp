@@ -12,115 +12,12 @@ library(scCustomize)
 library(shinyjs)
 
 # Source all module files
-source("app/data_input_module.R")
-source("app/qc_module.R")
-source("app/dimension_reduction_module.R")
-source("app/de_analysis_module.R")
+source("R/ui.R")
+source("R/modules/data_input_module.R")
+source("R/modules/qc_module.R")
+source("R/modules/dimension_reduction_module.R")
+source("R/modules/de_analysis_module.R")
 
-# Custom JS for smooth scrolling with offset
-jscode <- "
-function scrollToSection(sectionId) {
-  const element = document.getElementById(sectionId);
-  const topBar = document.getElementById('topbar');
-  const topBarHeight = topBar.offsetHeight;
-  const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
-  
-  // Add 20px extra padding
-  const offsetPosition = elementPosition - topBarHeight - 20;
-
-  window.scrollTo({
-    top: offsetPosition,
-    behavior: 'smooth'
-  });
-}
-"
-
-ui <- fluidPage(
-  useShinyjs(),
-  tags$head(
-    tags$script(HTML(jscode)),
-    # CSS for fixed topbar, sidebar and scrollable main panel
-    tags$style(HTML("
-      #topbar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 60px;
-        background-color: #2c3e50;
-        color: white;
-        z-index: 1000;
-        padding: 0 20px;
-        display: flex;
-        align-items: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      }
-      #sidebar {
-        position: fixed;
-        top: 60px;
-        left: 0;
-        width: 20%;
-        height: calc(100vh - 60px);
-        overflow-y: auto;
-        padding: 15px;
-        background-color: #f5f5f5;
-        border-right: 1px solid #e3e3e3;
-      }
-      #main-content {
-        margin-left: 20%;
-        margin-top: 60px;
-        padding: 15px;
-        width: 80%;
-      }
-      .section-header {
-        padding-top: 30px;
-        margin-bottom: 20px;
-      }
-      .nav-pills > li > a {
-        padding: 8px 15px;
-        margin: 2px 0;
-      }
-      .nav-pills > li.active > a {
-        background-color: #337ab7;
-        color: white;
-      }
-      .badge {
-        margin-left: 5px;
-        background-color: #5cb85c;
-      }
-      #app-title {
-        font-size: 24px;
-        font-weight: 500;
-        margin: 0;
-      }
-    "))
-  ),
-  
-  # Top bar with title
-  div(id = "topbar",
-      h1(id = "app-title", "Single-Cell RNA Analysis")
-  ),
-  
-  # Main layout
-  div(
-    # Fixed sidebar
-    div(id = "sidebar",
-        dataInputUI("dataInput"),
-        tags$hr(),
-        h4("Navigation"),
-        div(
-          id = "navigation-panel",
-          uiOutput("taskList")
-        )
-    ),
-    # Scrollable main content
-    div(id = "main-content",
-        uiOutput("qcSection"),
-        uiOutput("dimredSection"),
-        uiOutput("deSection")
-    )
-  )
-)
 
 server <- function(input, output, session) {
   # Chain the reactive values through the modules
@@ -254,4 +151,4 @@ server <- function(input, output, session) {
   })
 }
 
-shinyApp(ui = ui, server = server)
+shinyApp(ui = buildUI(), server = server)

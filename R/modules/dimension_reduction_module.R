@@ -2,6 +2,7 @@ dimensionReductionUI <- function(id) {
   ns <- NS(id)
   tagList(
     plotOutput(ns("elbowPlot"), height = "400px"),
+    textOutput(ns("suggestedDims")),  # Added suggestion text
     uiOutput(ns("dimControls")),
     plotOutput(ns("umapPlot"), height = "400px"),
     uiOutput(ns("clusterControls")),
@@ -9,23 +10,70 @@ dimensionReductionUI <- function(id) {
   )
 }
 
+find_elbow <- function(x, y) {
+  # Focus on the rate of change
+  diffs <- diff(y) / diff(x)
+  
+  # Look for where the rate of change stabilizes
+  # Use a smaller window to be more sensitive to early changes
+  window_size <- 3
+  rolling_std <- sapply(1:(length(diffs) - window_size), function(i) {
+    sd(diffs[i:(i + window_size)])
+  })
+  
+  # Find where the variability in slope significantly decreases
+  threshold <- mean(rolling_std) * 0.1  # Adjust this threshold as needed
+  elbow_idx <- which(rolling_std < threshold)[1]
+  
+  return(x[elbow_idx])
+}
+
 dimensionReductionServer <- function(id, processed_seurat) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
+    # Calculate optimal dimensions
+    suggested_dims <- reactive({
+      req(processed_seurat())
+      seurat <- processed_seurat()
+      
+      # Extract eigenvalues from PCA
+      pca_data <- Embeddings(seurat, "pca")
+      stdev <- Stdev(seurat[["pca"]])
+      var_explained <- stdev^2 / sum(stdev^2)
+      
+      # Find elbow point
+      dims <- 1:length(var_explained)
+      optimal_dims <- find_elbow(dims, var_explained)
+      
+      return(optimal_dims)
+    })
+    
     output$elbowPlot <- renderPlot({
       req(processed_seurat())
       ElbowPlot(processed_seurat(), 
-                ndims = ncol(Embeddings(processed_seurat(), "pca")))
+                ndims = ncol(Embeddings(processed_seurat(), "pca"))) +
+        geom_vline(xintercept = suggested_dims(), 
+                   color = "red", 
+                   linetype = "dashed")
+    })
+    
+    output$suggestedDims <- renderText({
+      req(suggested_dims())
+      paste("Suggested number of dimensions (based on elbow point):", suggested_dims())
     })
     
     output$dimControls <- renderUI({
-      req(processed_seurat())
+      req(processed_seurat(), suggested_dims())
       tagList(
         tags$div(
           id = ns("dimension_controls"),
           renderPrint("Please adjust the number of PC for reduction"),
-          numericInput(ns("nDims"), "Number of dimensions for UMAP:", 10),
+          numericInput(ns("nDims"), 
+                       "Number of dimensions for UMAP:", 
+                       value = suggested_dims(),  # Use suggested dims as default
+                       min = 2,
+                       max = ncol(Embeddings(processed_seurat(), "pca"))),
           actionButton(ns("runUMAP"), "Run UMAP")
         )
       )
@@ -46,7 +94,12 @@ dimensionReductionServer <- function(id, processed_seurat) {
         tags$div(
           id = ns("clustering_controls"),
           renderPrint("Please adjust clustering resolution:"),
-          numericInput(ns("resolution"), "Clustering Resolution:", 0.5, min = 0, max = 2, step = 0.01),
+          numericInput(ns("resolution"), 
+                       "Clustering Resolution:", 
+                       0.5, 
+                       min = 0, 
+                       max = 2, 
+                       step = 0.01),
           actionButton(ns("runClustering"), "Run Clustering")
         )
       )
