@@ -8,8 +8,6 @@ install_if_missing <- function(package) {
 
 # List of required packages
 required_packages <- c(
-  "R.tools",
-  "devtools",
   "shiny",
   "patchwork",
   "shinyFiles",
@@ -19,7 +17,8 @@ required_packages <- c(
   "ggplot2",
   "scCustomize",
   "shinyjs",
-  "DT"
+  "DT",
+  "devtools"
 )
 
 # Install each package if missing
@@ -32,6 +31,8 @@ for (package in required_packages) {
 if (!require("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 
-devtools::install_github('immunogenomics/presto')
+if (!require("presto")) {
+  devtools::install_github("immunogenomics/presto")
+}
 
 message("All required packages have been installed!")
