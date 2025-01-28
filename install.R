@@ -18,7 +18,8 @@ required_packages <- c(
   "scCustomize",
   "shinyjs",
   "DT",
-  "devtools"
+  "devtools",
+  "GEOquery"
 )
 
 # Install each package if missing

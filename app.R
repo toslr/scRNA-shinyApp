@@ -10,6 +10,8 @@ library(Matrix)
 library(ggplot2)
 library(scCustomize)
 library(shinyjs)
+library(DT)
+library(GEOquery)
 
 # Source all module files
 source("R/ui.R")

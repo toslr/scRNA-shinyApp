@@ -2,8 +2,26 @@
 
 buildServer <- function() {
   function(input, output, session) {
+    # Get data from input module
+    data_input <- dataInputServer("dataInput")
+    
+    # Extract Seurat object with proper reactive chain
+    seurat_data <- reactive({
+      req(data_input())
+      input_data <- data_input()  # Remove the extra () since data_input() already returns the list
+      req(input_data$seurat)
+      input_data$seurat
+    })
+    
+    # Extract metadata if needed
+    metadata <- reactive({
+      req(data_input())
+      input_data <- data_input()
+      req(input_data$metadata)
+      input_data$metadata
+    })
+    
     # Chain the reactive values through the modules
-    seurat_data <- dataInputServer("dataInput")
     processed_seurat <- qcServer("qc", seurat_data)
     clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat)
     de_module <- deAnalysisServer("de", clustered_seurat)
@@ -17,7 +35,7 @@ buildServer <- function() {
       de = FALSE
     )
     
-    # Setup different components
+    # Setup different components using the modularized functions
     setupObservers(steps_completed, seurat_data, processed_seurat, 
                    clustered_seurat, de_module)
     setupSections(output, seurat_data, processed_seurat, clustered_seurat)
