@@ -36,7 +36,7 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
     seurat_obj <- reactiveVal(NULL)
     
     output$intro <- renderText({
-      "This tool is able to read .txt.gz files, with ENSEMBL gene names as rows and cell names as columns. Optionally provide a GEO Series ID to fetch clinical metadata. Then select the directory containing the expression files and start the analysis."
+      "Please input yout GEO Series ID and browse to find your expression files."
     })
     
     # Conditional rendering of metadata section
