@@ -1,10 +1,14 @@
 # R/observers.R
 
-setupObservers <- function(steps_completed, seurat_data, processed_seurat, 
+setupObservers <- function(steps_completed, seurat_data, metadata, processed_seurat, 
                            clustered_seurat, de_module) {
   # Track step completion status
   observeEvent(seurat_data(), {
     steps_completed$data_input <- !is.null(seurat_data())
+  })
+  
+  observeEvent(metadata(), {
+    steps_completed$metadata <- !is.null(metadata()) && ncol(metadata()) > 0
   })
   
   observeEvent(processed_seurat(), {

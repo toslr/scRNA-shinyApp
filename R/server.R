@@ -29,6 +29,7 @@ buildServer <- function() {
     # Create reactive values to track completion of each step
     steps_completed <- reactiveValues(
       data_input = FALSE,
+      metadata = FALSE,
       qc = FALSE,
       dimred = FALSE,
       clustering = FALSE,
@@ -36,7 +37,7 @@ buildServer <- function() {
     )
     
     # Setup different components using the modularized functions
-    setupObservers(steps_completed, seurat_data, processed_seurat, 
+    setupObservers(steps_completed, seurat_data, metadata, processed_seurat, 
                    clustered_seurat, de_module)
     setupSections(output, seurat_data, processed_seurat, clustered_seurat)
     setupNavigation(output, steps_completed)

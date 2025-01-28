@@ -6,6 +6,17 @@ setupNavigation <- function(output, steps_completed) {
     tasks <- tags$ul(class = "nav nav-pills nav-stacked",
                      style = "margin-top: 10px;")
     
+    # Show metadata link if metadata is loaded
+    if (steps_completed$metadata) {
+      tasks <- tagAppendChild(tasks,
+                              tags$li(class = "active",
+                                      tags$a(href = "javascript:void(0)",
+                                             onclick = "scrollToSection('metadata-section')",
+                                             "Sample Metadata",
+                                             tags$span(class="badge", "✓"))
+                              ))
+    }
+    
     # Show QC link if data is loaded
     if (steps_completed$data_input) {
       tasks <- tagAppendChild(tasks,

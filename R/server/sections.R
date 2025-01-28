@@ -2,6 +2,15 @@
 
 setupSections <- function(output, seurat_data, processed_seurat, clustered_seurat) {
   # Conditional section renders
+  
+  output$metadataSection <- renderUI({
+    req(metadata())
+    div(id = "metadata-section",
+        h3(class = "section-header", "Sample Metadata"),
+        dataMetadataUI("metadata")  # This references the UI function we already have
+    )
+  })
+  
   output$qcSection <- renderUI({
     req(seurat_data)
     seurat_obj <- seurat_data()
