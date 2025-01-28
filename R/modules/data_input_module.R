@@ -52,7 +52,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
     # GEO metadata fetching
     observeEvent(input$fetchGEO, {
       req(input$geoID)
-      
       tryCatch({
         withProgress(message = 'Fetching GEO metadata...', value = 0, {
           # Fetch GEO data
@@ -62,54 +61,32 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
           # Extract phenoData
           pheno_data <- pData(phenoData(gset))
           
-          # Create metadata dataframe
+          # Create basic metadata dataframe with just geo_accession and title
           metadata <- data.frame(
             geo_accession = rownames(pheno_data),
             title = pheno_data$title,
-            row.names = rownames(pheno_data)
+            stringsAsFactors = FALSE
           )
           
-          # Process characteristics if available
-          if ("characteristics_ch1" %in% colnames(pheno_data)) {
-            chars <- pheno_data$characteristics_ch1
-            char_list <- strsplit(chars, ": ")
-            
-            if (any(sapply(char_list, length) == 2)) {
-              char_df <- do.call(rbind, lapply(char_list, function(x) {
-                if (length(x) == 2) {
-                  return(c(key = x[1], value = x[2]))
-                } else {
-                  return(c(key = NA, value = paste(x, collapse = ": ")))
-                }
-              }))
-              
-              char_df <- as.data.frame(char_df)
-              unique_keys <- unique(char_df$key)
-              
-              for (key in unique_keys) {
-                if (!is.na(key)) {
-                  col_name <- make.names(tolower(key))
-                  metadata[[col_name]] <- char_df$value[char_df$key == key]
-                }
-              }
-            }
+          # Get all characteristics columns (ch1, ch1.1, ch2, etc)
+          char_columns <- grep("characteristics_ch", colnames(pheno_data), value = TRUE)
+          
+          # Add each characteristics column as is
+          for (col in char_columns) {
+            metadata[[col]] <- pheno_data[[col]]
           }
           
-          # Format metadata for display
-          display_metadata <- metadata
-          # Rename columns for better display
-          colnames(display_metadata) <- gsub("^treatment$", "Treatment", 
-                                             gsub("^title$", "Sample Title", 
-                                                  colnames(display_metadata)))
-          
-          geo_metadata(display_metadata)
+          # Store metadata
+          geo_metadata(metadata)
           
           # Render the metadata table
           output$sampleTable <- renderDT({
-            datatable(display_metadata,
-                      options = list(pageLength = 15,
-                                     scrollX = TRUE,
-                                     dom = 'tlip'),
+            datatable(metadata,
+                      options = list(
+                        pageLength = 15,
+                        scrollX = TRUE,
+                        dom = 'tlip'
+                      ),
                       rownames = FALSE,
                       selection = 'none',
                       class = 'cell-border stripe')
