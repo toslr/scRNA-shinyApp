@@ -1,61 +1,82 @@
-      #topbar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 60px;
-        background-color: #8C1515;
-        color: white;
-        z-index: 1000;
-        padding: 0 20px;
-        display: flex;
-        align-items: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      }
-      #sidebar {
-        position: relative;
-        top: 60px;
-        left: 0;
-        width: 20%;
-        height: calc(100vh - 60px);
-        overflow-y: auto;
-        padding: 15px;
-        padding-bottom: 60px;
-        background-color: #f5f5f5;
-        border-right: 1px solid #e3e3e3;
-      }
-      
-      #copyright {
-        position: absolute;
-        bottom: 10px;
-        left: 0;
-        right: 0;
-        padding: 10px;
-      }
-      #main-content {
-        margin-left: 20%;
-        margin-top: 60px;
-        padding: 15px;
-        width: 80%;
-      }
-      .section-header {
-        padding-top: 30px;
-        margin-bottom: 20px;
-      }
-      .nav-pills > li > a {
-        padding: 8px 15px;
-        margin: 2px 0;
-      }
-      .nav-pills > li.active > a {
-        background-color: #337ab7;
-        color: white;
-      }
-      .badge {
-        margin-left: 5px;
-        background-color: #5cb85c;
-      }
-      #app-title {
-        font-size: 24px;
-        font-weight: 500;
-        margin: 0;
-      }
+#topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background-color: #8C1515;
+  color: white;
+  z-index: 1000;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#sidebar {
+  position: fixed;
+  top: 60px;
+  left: 0;
+  width: 20%;
+  height: calc(100vh - 60px);
+  overflow-y: auto;
+  padding: 15px;
+  padding-bottom: 60px;
+  background-color: #f5f5f5;
+  border-right: 1px solid #e3e3e3;
+  box-sizing: border-box; 
+}
+
+#copyright {
+  position: fixed;
+  bottom: 10px;
+  left: 0;
+  width: 20%; 
+  padding: 10px;
+  background-color: #f5f5f5; 
+  border-right: 1px solid #e3e3e3;
+}
+
+#main-content {
+  position: relative;
+  margin-left: 20%;
+  margin-top: 60px;
+  padding: 15px;
+  width: 80%;
+  min-height: calc(100vh - 60px);
+  box-sizing: border-box;
+}
+
+.section-header {
+  padding-top: 30px;
+  margin-bottom: 20px;
+}
+
+.nav-pills > li > a {
+  padding: 8px 15px;
+  margin: 2px 0;
+}
+
+.nav-pills > li.active > a {
+  background-color: #337ab7;
+  color: white;
+}
+
+.badge {
+  margin-left: 5px;
+  background-color: #5cb85c;
+}
+
+#app-title {
+  font-size: 24px;
+  font-weight: 500;
+  margin: 0;
+}
+
+#navigation-panel {
+  margin-bottom: 100px; 
+}
+
+#metadata-section {
+  padding-top: 15px;
+}

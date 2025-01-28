@@ -36,6 +36,7 @@ buildUI <- function() {
       # Scrollable main content
       div(id = "main-content",
           dataMetadataUI("dataInput"),
+          uiOutput("metadataSection"),
           uiOutput("qcSection"),
           uiOutput("dimredSection"),
           uiOutput("deSection")

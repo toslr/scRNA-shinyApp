@@ -24,30 +24,11 @@ dataInputUI <- function(id) {
   )
 }
 
-# New UI function for the metadata table in main panel
-dataMetadataUI <- function(id) {
-  ns <- NS(id)
-  tagList(
-    uiOutput(ns("metadataSection"))
-  )
-}
-
-
 dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
   moduleServer(id, function(input, output, session) {
     # Create reactive values
     geo_metadata <- reactiveVal(NULL)
     seurat_obj <- reactiveVal(NULL)
-    
-    # Conditional rendering of metadata section
-    output$metadataSection <- renderUI({
-      if (!is.null(geo_metadata())) {
-        tagList(
-          h3("Sample Metadata"),
-          DTOutput(session$ns("sampleTable"))
-        )
-      }
-    })
     
     # GEO metadata fetching
     observeEvent(input$fetchGEO, {
@@ -78,19 +59,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
           
           # Store metadata
           geo_metadata(metadata)
-          
-          # Render the metadata table
-          output$sampleTable <- renderDT({
-            datatable(metadata,
-                      options = list(
-                        pageLength = 15,
-                        scrollX = TRUE,
-                        dom = 'tlip'
-                      ),
-                      rownames = FALSE,
-                      selection = 'none',
-                      class = 'cell-border stripe')
-          })
         })
         
         output$geoStatus <- renderText({
@@ -123,30 +91,23 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
       
       withProgress(message = 'Reading data...', value = 0, {
         tryCatch({
-          print("Reading gene conversion file...")  # Debug message
           incProgress(0.1, detail = "Reading gene name conversion")
           gene_conversion <- read.csv(file.path(selected_dir(), "gene_conversion_results.csv"))
-          print("Gene conversion file read successfully")  # Debug message
           
           gene_mapping <- setNames(gene_conversion$external_gene_name, 
                                    gene_conversion$ensembl_gene_id)
           
-          print("Looking for txt.gz files...")  # Debug message
           files <- list.files(selected_dir(), pattern="1.txt.gz$")
-          print(paste("Found files:", paste(files, collapse=", ")))  # Debug message
+          print(paste("Found files:", paste(files, collapse=", ")))
           
-          print("Reading expression data...")  # Debug message
           incProgress(0.2, detail = "Reading expression data")
           GEO_data <- Read_GEO_Delim(data_dir = selected_dir(), 
                                      file_suffix = '1.txt.gz')
-          print("Expression data read successfully")  # Debug message
           
-          print("Creating Seurat object...")  # Debug message
           incProgress(0.4, detail = "Creating Seurat object")
           seurat <- CreateSeuratObject(counts = GEO_data, project = "DS1")
           seurat@misc$gene_mapping <- gene_mapping
           
-          print("Converting gene names...")  # Debug message
           incProgress(0.6, detail = "Converting gene names")
           gene_names <- rownames(GEO_data[[1]])
           count_matrices <- names(seurat@assays$RNA@layers)
@@ -158,7 +119,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
             colnames(seurat@assays$RNA@layers[[matrix_name]]) <- cell_names
           }
           
-          print("Processing sample information...")  # Debug message
           sample_names <- gsub("counts\\.GSM[0-9]+_(.*)", "\\1", count_matrices)
           cell_sample_info <- character(0)
           
@@ -170,7 +130,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
           }
           seurat$sample <- cell_sample_info
           
-          print("Adding metadata if available...")  # Debug message
           if (!is.null(geo_metadata())) {
             metadata <- geo_metadata()
             gsm_numbers <- unique(gsub("counts\\.(GSM[0-9]+)_.*", "\\1", count_matrices))
@@ -193,13 +152,9 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
             }
           }
           
-          print("Computing percent.mt...")  # Debug message
           seurat[["percent.mt"]] <- PercentageFeatureSet(seurat,
                                                          pattern = "^ENSMUSG00000064")
-          
-          print("Storing Seurat object in reactive value...")  # Debug message
           seurat_obj(seurat)
-          print("Data processing completed successfully!")  # Debug message
           
         }, error = function(e) {
           print(paste("Error in data processing:", e$message))  # Debug error message

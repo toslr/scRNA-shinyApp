@@ -39,7 +39,7 @@ buildServer <- function() {
     # Setup different components using the modularized functions
     setupObservers(steps_completed, seurat_data, metadata, processed_seurat, 
                    clustered_seurat, de_module)
-    setupSections(output, seurat_data, processed_seurat, clustered_seurat)
+    setupSections(output, seurat_data, metadata, processed_seurat, clustered_seurat)
     setupNavigation(output, steps_completed)
   }
 }

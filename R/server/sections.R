@@ -1,13 +1,23 @@
 # R/sections.R
 
-setupSections <- function(output, seurat_data, processed_seurat, clustered_seurat) {
+setupSections <- function(output, seurat_data, metadata, processed_seurat, clustered_seurat) {
   # Conditional section renders
   
   output$metadataSection <- renderUI({
     req(metadata())
     div(id = "metadata-section",
         h3(class = "section-header", "Sample Metadata"),
-        dataMetadataUI("metadata")  # This references the UI function we already have
+        renderDT({
+          datatable(metadata(),
+                    options = list(
+                      pageLength = 15,
+                      scrollX = TRUE,
+                      dom = 'tlip'
+                    ),
+                    rownames = FALSE,
+                    selection = 'none',
+                    class = 'cell-border stripe')
+        })
     )
   })
   
