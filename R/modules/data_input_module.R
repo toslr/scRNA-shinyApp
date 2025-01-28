@@ -7,16 +7,20 @@ dataInputUI <- function(id) {
     # Add GEO input field
     fluidRow(
       column(12,
+             strong("Please input yout GEO Series ID and browse to find your expression files."),
+             h2(),
              textInput(ns("geoID"), "GEO Series ID (e.g., GSE182846)", 
                        placeholder = "GSExxxxxx"),
              actionButton(ns("fetchGEO"), "Fetch GEO Metadata"),
-             verbatimTextOutput(ns("geoStatus"))
+             verbatimTextOutput(ns("geoStatus")),
+             h2(),
+             strong("Select data directory"),
+             shinyDirButton(ns("dir"), "Select Data Directory", "Choose directory"),
+             verbatimTextOutput(ns("dirpath")),
+             actionButton(ns("processData"), "Read Data")
       )
     ),
-    hr(),
-    shinyDirButton(ns("dir"), "Select Data Directory", "Choose directory"),
-    verbatimTextOutput(ns("dirpath")),
-    actionButton(ns("processData"), "Read Data")
+
   )
 }
 
@@ -34,10 +38,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
     # Create reactive values
     geo_metadata <- reactiveVal(NULL)
     seurat_obj <- reactiveVal(NULL)
-    
-    output$intro <- renderText({
-      "Please input yout GEO Series ID and browse to find your expression files."
-    })
     
     # Conditional rendering of metadata section
     output$metadataSection <- renderUI({
