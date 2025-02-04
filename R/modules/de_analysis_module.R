@@ -2,8 +2,19 @@
 
 deAnalysisUI <- function(id) {
   ns <- NS(id)
-  # Initially show nothing, content will be rendered conditionally
-  uiOutput(ns("deUI"))
+  
+  tagList(
+    # Static container for cluster management
+    wellPanel(
+      h4("Cluster Management"),
+      div(id = ns("clusterManagement"),
+          style = "max-height: 300px; overflow-y: auto;",
+          uiOutput(ns("clusterControls"))
+      )
+    ),
+    # Container for analysis UI
+    uiOutput(ns("analysisUI"))
+  )
 }
 
 deAnalysisServer <- function(id, clustered_seurat) {
@@ -74,8 +85,49 @@ deAnalysisServer <- function(id, clustered_seurat) {
       names(active_clusters()[active_clusters() == TRUE])
     })
     
-    # Render the DE analysis UI
-    output$deUI <- renderUI({
+    # Render just the cluster management controls
+    output$clusterControls <- renderUI({
+      req(clustered_seurat())
+      req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
+      req(clusters())
+      req(cluster_labels())
+      req(active_clusters())
+      
+      available_clusters <- clusters()
+      current_labels <- cluster_labels()
+      current_active <- active_clusters()
+      
+      tagList(
+        lapply(available_clusters, function(cluster) {
+          div(style = "margin-bottom: 10px;",
+              fluidRow(
+                column(4, 
+                       tags$label(paste("Cluster", cluster)),
+                       textInput(ns(paste0("label_", cluster)),
+                                 label = NULL,
+                                 value = current_labels[[as.character(cluster)]])
+                ),
+                column(2,
+                       div(style = "margin-top: 5px;",
+                           actionButton(ns(paste0("update_", cluster)), "Update",
+                                        class = "btn-sm")
+                       )
+                ),
+                column(2,
+                       div(style = "margin-top: 5px;",
+                           checkboxInput(ns(paste0("active_", cluster)), 
+                                         "Active",
+                                         value = current_active[[as.character(cluster)]])
+                       )
+                )
+              )
+          )
+        })
+      )
+    })
+    
+    # Render the analysis UI separately
+    output$analysisUI <- renderUI({
       req(clustered_seurat())
       req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
       req(clusters())
@@ -94,40 +146,6 @@ deAnalysisServer <- function(id, clustered_seurat) {
       )
       
       tagList(
-        fluidRow(
-          column(12,
-                 wellPanel(
-                   h4("Cluster Management"),
-                   div(style = "max-height: 300px; overflow-y: auto;",
-                       lapply(available_clusters, function(cluster) {
-                         div(style = "margin-bottom: 10px;",
-                             fluidRow(
-                               column(4, 
-                                      tags$label(paste("Cluster", cluster)),
-                                      textInput(ns(paste0("label_", cluster)),
-                                                label = NULL,
-                                                value = current_labels[[as.character(cluster)]])
-                               ),
-                               column(2,
-                                      div(style = "margin-top: 5px;",
-                                          actionButton(ns(paste0("update_", cluster)), "Update",
-                                                       class = "btn-sm")
-                                      )
-                               ),
-                               column(2,
-                                      div(style = "margin-top: 5px;",
-                                          checkboxInput(ns(paste0("active_", cluster)), 
-                                                        "Active",
-                                                        value = current_active[[as.character(cluster)]])
-                                      )
-                               )
-                             )
-                         )
-                       })
-                   )
-                 )
-          )
-        ),
         fluidRow(
           column(6,
                  wellPanel(
