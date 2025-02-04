@@ -10,19 +10,94 @@ deAnalysisServer <- function(id, clustered_seurat) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Render the DE analysis UI only when clustering is done
+    # Reactive value to store cluster labels
+    cluster_labels <- reactiveVal(NULL)
+    
+    # Reactive to safely get cluster information
+    clusters <- reactive({
+      req(clustered_seurat())
+      req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
+      sort(unique(clustered_seurat()$seurat_clusters))
+    })
+    
+    # Initialize cluster labels when clusters change
+    observe({
+      req(clusters())
+      current_clusters <- clusters()
+      
+      # Initialize or update labels if needed
+      current_labels <- cluster_labels()
+      if (is.null(current_labels) || 
+          !all(as.character(current_clusters) %in% names(current_labels))) {
+        
+        # Create new labels for missing clusters
+        new_labels <- setNames(
+          paste("Cluster", current_clusters), 
+          as.character(current_clusters)
+        )
+        
+        # Merge with existing labels if they exist
+        if (!is.null(current_labels)) {
+          existing_clusters <- names(current_labels)
+          new_labels[existing_clusters] <- current_labels[existing_clusters]
+        }
+        
+        cluster_labels(new_labels)
+      }
+    })
+    
+    # Render the DE analysis UI
     output$deUI <- renderUI({
       req(clustered_seurat())
       req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
+      req(clusters())
+      req(cluster_labels())
+      
+      available_clusters <- clusters()
+      current_labels <- cluster_labels()
+      
+      # Create choices for select inputs
+      cluster_choices <- setNames(
+        available_clusters,
+        vapply(available_clusters, function(x) current_labels[[as.character(x)]], character(1))
+      )
       
       tagList(
+        fluidRow(
+          column(12,
+                 wellPanel(
+                   h4("Cluster Management"),
+                   div(style = "max-height: 300px; overflow-y: auto;",
+                       lapply(available_clusters, function(cluster) {
+                         div(style = "margin-bottom: 10px;",
+                             fluidRow(
+                               column(4, 
+                                      tags$label(paste("Cluster", cluster)),
+                                      textInput(ns(paste0("label_", cluster)),
+                                                label = NULL,
+                                                value = current_labels[[as.character(cluster)]])
+                               ),
+                               column(2,
+                                      div(style = "margin-top: 5px;",
+                                          actionButton(ns(paste0("update_", cluster)), "Update",
+                                                       class = "btn-sm")
+                                      )
+                               )
+                             )
+                         )
+                       })
+                   )
+                 )
+          )
+        ),
         fluidRow(
           column(6,
                  wellPanel(
                    h4("One vs All Analysis"),
                    selectInput(ns("targetClusterAll"), 
                                "Select cluster to compare against all others:", 
-                               choices = sort(unique(clustered_seurat()$seurat_clusters))),
+                               choices = cluster_choices,
+                               selected = NULL),
                    actionButton(ns("runDEAll"), "Run One vs All DE")
                  )
           ),
@@ -31,10 +106,10 @@ deAnalysisServer <- function(id, clustered_seurat) {
                    h4("One vs One Analysis"),
                    selectInput(ns("targetCluster1"), 
                                "Select first cluster:", 
-                               choices = sort(unique(clustered_seurat()$seurat_clusters))),
+                               choices = cluster_choices),
                    selectInput(ns("targetCluster2"), 
                                "Select second cluster:", 
-                               choices = sort(unique(clustered_seurat()$seurat_clusters))),
+                               choices = cluster_choices),
                    actionButton(ns("runDEPair"), "Run Pairwise DE")
                  )
           )
@@ -44,10 +119,36 @@ deAnalysisServer <- function(id, clustered_seurat) {
       )
     })
     
+    # Handle cluster label updates
+    observe({
+      req(clusters())
+      available_clusters <- clusters()
+      
+      lapply(available_clusters, function(cluster) {
+        observeEvent(input[[paste0("update_", cluster)]], {
+          req(cluster_labels())
+          new_label <- input[[paste0("label_", cluster)]]
+          current_labels <- cluster_labels()
+          current_labels[as.character(cluster)] <- new_label
+          cluster_labels(current_labels)
+        })
+      })
+    })
+    
     # Reactive value to store current DE results
     de_genes <- reactiveVal()
     # Reactive value to track whether DE was run
     de_status <- reactiveVal(NULL)
+    
+    # Get cluster label for plot titles
+    get_cluster_label <- function(cluster) {
+      labels <- cluster_labels()
+      if (!is.null(labels) && !is.null(labels[as.character(cluster)])) {
+        labels[as.character(cluster)]
+      } else {
+        paste("Cluster", cluster)
+      }
+    }
     
     # One vs All analysis
     observeEvent(input$runDEAll, {
@@ -60,7 +161,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
                                   logfc.threshold = 0.25)
         
         de_results$gene <- clustered_seurat()@misc$gene_mapping[rownames(de_results)]
-        de_results$comparison <- paste("Cluster", input$targetClusterAll, "vs All")
+        de_results$comparison <- paste(get_cluster_label(input$targetClusterAll), "vs All")
         de_genes(de_results)
         de_status("completed")
       })
@@ -79,8 +180,9 @@ deAnalysisServer <- function(id, clustered_seurat) {
                                   logfc.threshold = 0.25)
         
         de_results$gene <- clustered_seurat()@misc$gene_mapping[rownames(de_results)]
-        de_results$comparison <- paste("Cluster", input$targetCluster1, 
-                                       "vs Cluster", input$targetCluster2)
+        de_results$comparison <- paste(get_cluster_label(input$targetCluster1),
+                                       "vs",
+                                       get_cluster_label(input$targetCluster2))
         de_genes(de_results)
         de_status("completed")
       })
@@ -113,10 +215,11 @@ deAnalysisServer <- function(id, clustered_seurat) {
         DT::formatRound(columns = c("avg_log2FC"), digits = 2)
     })
     
-    # Return both the results and status
+    # Return results, status, and labels
     return(list(
       results = de_genes,
-      status = de_status
+      status = de_status,
+      labels = cluster_labels
     ))
   })
 }
