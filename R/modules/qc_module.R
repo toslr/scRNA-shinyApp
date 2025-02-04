@@ -3,8 +3,9 @@
 qcUI <- function(id) {
   ns <- NS(id)
   tagList(
+    tags$strong(textOutput(ns("sampleInfo"))),
+    tags$br(),
     plotOutput(ns("qcPlot"), height = "600px"),
-    textOutput(ns("sampleInfo")),
     uiOutput(ns("filterControls"))
   )
 }
@@ -52,7 +53,10 @@ qcServer <- function(id, seurat_data) {
       tagList(
         tags$div(
           id = ns("filter_controls"),
-          renderPrint("Please adjust filtering parameters:"),
+          tags$br(),
+          tags$strong("Please adjust filtering parameters:"),
+          tags$br(),
+          tags$br(),
           numericInput(ns("minFeature"), "Minimum Features:", 500),
           numericInput(ns("maxFeature"), "Maximum Features:", 5000),
           numericInput(ns("maxMT"), "Maximum MT %:", 5),
