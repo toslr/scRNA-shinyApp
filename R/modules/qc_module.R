@@ -4,6 +4,7 @@ qcUI <- function(id) {
   ns <- NS(id)
   tagList(
     plotOutput(ns("qcPlot"), height = "600px"),
+    textOutput(ns("sampleInfo")),
     uiOutput(ns("filterControls"))
   )
 }
@@ -12,12 +13,38 @@ qcServer <- function(id, seurat_data) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
+    # Function to get samples to plot
+    get_plot_data <- function(seurat_obj) {
+      all_samples <- unique(seurat_obj$sample)
+      if (length(all_samples) > 5) {
+        samples_to_plot <- all_samples[1:5]
+        # Only subset if we have more than 5 samples
+        cells_to_keep <- seurat_obj$sample %in% samples_to_plot
+        return(subset(seurat_obj, cells = cells_to_keep))
+      }
+      # If 5 or fewer samples, return original object
+      return(seurat_obj)
+    }
+    
     output$qcPlot <- renderPlot({
       req(seurat_data())
-      VlnPlot(seurat_data(), 
+      seurat_obj <- seurat_data()
+      
+      plot_obj <- get_plot_data(seurat_data())
+      VlnPlot(plot_obj, 
               features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
               group.by = "sample",
               ncol = 3)
+    })
+    
+    # Add information about sample selection
+    output$sampleInfo <- renderText({
+      req(seurat_data())
+      total_samples <- length(unique(seurat_data()$sample))
+      if (total_samples > 5) {
+        return(paste("Showing QC plots for first 5 samples out of", total_samples, "total samples"))
+      }
+      return(paste("Showing QC plots for all", total_samples, "samples"))
     })
     
     output$filterControls <- renderUI({
