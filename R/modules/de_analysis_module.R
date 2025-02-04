@@ -12,6 +12,8 @@ deAnalysisServer <- function(id, clustered_seurat) {
     
     # Reactive value to store cluster labels
     cluster_labels <- reactiveVal(NULL)
+    # Reactive value to store active/inactive status of clusters
+    active_clusters <- reactiveVal(NULL)
     
     # Reactive to safely get cluster information
     clusters <- reactive({
@@ -20,7 +22,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
       sort(unique(clustered_seurat()$seurat_clusters))
     })
     
-    # Initialize cluster labels when clusters change
+    # Initialize cluster labels and active status when clusters change
     observe({
       req(clusters())
       current_clusters <- clusters()
@@ -44,6 +46,32 @@ deAnalysisServer <- function(id, clustered_seurat) {
         
         cluster_labels(new_labels)
       }
+      
+      # Initialize active status if needed
+      current_active <- active_clusters()
+      if (is.null(current_active) || 
+          !all(as.character(current_clusters) %in% names(current_active))) {
+        
+        # Set all clusters as active by default
+        new_active <- setNames(
+          rep(TRUE, length(current_clusters)),
+          as.character(current_clusters)
+        )
+        
+        # Merge with existing active status if it exists
+        if (!is.null(current_active)) {
+          existing_clusters <- names(current_active)
+          new_active[existing_clusters] <- current_active[existing_clusters]
+        }
+        
+        active_clusters(new_active)
+      }
+    })
+    
+    # Get currently active clusters
+    active_cluster_list <- reactive({
+      req(active_clusters())
+      names(active_clusters()[active_clusters() == TRUE])
     })
     
     # Render the DE analysis UI
@@ -52,14 +80,17 @@ deAnalysisServer <- function(id, clustered_seurat) {
       req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
       req(clusters())
       req(cluster_labels())
+      req(active_clusters())
       
       available_clusters <- clusters()
       current_labels <- cluster_labels()
+      current_active <- active_clusters()
       
-      # Create choices for select inputs
+      # Create choices for select inputs (only active clusters)
+      active_cluster_ids <- as.numeric(names(current_active[current_active == TRUE]))
       cluster_choices <- setNames(
-        available_clusters,
-        vapply(available_clusters, function(x) current_labels[[as.character(x)]], character(1))
+        active_cluster_ids,
+        vapply(active_cluster_ids, function(x) current_labels[[as.character(x)]], character(1))
       )
       
       tagList(
@@ -81,6 +112,13 @@ deAnalysisServer <- function(id, clustered_seurat) {
                                       div(style = "margin-top: 5px;",
                                           actionButton(ns(paste0("update_", cluster)), "Update",
                                                        class = "btn-sm")
+                                      )
+                               ),
+                               column(2,
+                                      div(style = "margin-top: 5px;",
+                                          checkboxInput(ns(paste0("active_", cluster)), 
+                                                        "Active",
+                                                        value = current_active[[as.character(cluster)]])
                                       )
                                )
                              )
@@ -125,6 +163,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
       available_clusters <- clusters()
       
       lapply(available_clusters, function(cluster) {
+        # Handle label updates
         observeEvent(input[[paste0("update_", cluster)]], {
           req(cluster_labels())
           new_label <- input[[paste0("label_", cluster)]]
@@ -132,6 +171,37 @@ deAnalysisServer <- function(id, clustered_seurat) {
           current_labels[as.character(cluster)] <- new_label
           cluster_labels(current_labels)
         })
+        
+        # Handle active status updates
+        observeEvent(input[[paste0("active_", cluster)]], {
+          req(active_clusters())
+          current_active <- active_clusters()
+          current_active[as.character(cluster)] <- input[[paste0("active_", cluster)]]
+          active_clusters(current_active)
+        })
+      })
+    })
+    
+    # One vs All analysis (modified to use only active clusters)
+    observeEvent(input$runDEAll, {
+      req(clustered_seurat(), input$targetClusterAll)
+      req(active_cluster_list())
+      
+      withProgress(message = 'Computing one vs all differential expression...', {
+        # Subset Seurat object to only include active clusters
+        active_cells <- clustered_seurat()$seurat_clusters %in% active_cluster_list()
+        seurat_subset <- subset(clustered_seurat(), cells = colnames(clustered_seurat())[active_cells])
+        
+        de_results <- FindMarkers(seurat_subset,
+                                  ident.1 = input$targetClusterAll,
+                                  ident.2 = NULL,
+                                  min.pct = 0.25,
+                                  logfc.threshold = 0.25)
+        
+        de_results$gene <- clustered_seurat()@misc$gene_mapping[rownames(de_results)]
+        de_results$comparison <- paste(get_cluster_label(input$targetClusterAll), "vs All Active")
+        de_genes(de_results)
+        de_status("completed")
       })
     })
     
@@ -219,7 +289,8 @@ deAnalysisServer <- function(id, clustered_seurat) {
     return(list(
       results = de_genes,
       status = de_status,
-      labels = cluster_labels
+      labels = cluster_labels,
+      active=active_clusters
     ))
   })
 }
