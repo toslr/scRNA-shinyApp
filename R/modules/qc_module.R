@@ -1,3 +1,5 @@
+#R/modules/qc_module.R
+
 qcUI <- function(id) {
   ns <- NS(id)
   tagList(

@@ -1,4 +1,4 @@
-# R/sections.R
+# R/servers/sections.R
 
 setupSections <- function(output, seurat_data, metadata, processed_seurat, clustered_seurat) {
   # Conditional section renders

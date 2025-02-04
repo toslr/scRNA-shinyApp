@@ -1,0 +1,290 @@
+## 0. Library installation
+
+```{r}
+library(shiny)
+library(patchwork)
+library(shinyFiles)
+library(Seurat)
+library(dplyr)
+library(Matrix)
+library(ggplot2)
+library(scCustomize)
+library(shinyjs)
+library(DT)
+library(GEOquery)
+```
+
+## 1. Data input
+
+### 1.1 Get GEO metadata
+
+```{r}
+# Function to get clinical metadata from GEO
+get_geo_metadata <- function(geo_id) {
+  # Fetch GEO data
+  gset <- getGEO(geo_id, GSEMatrix = TRUE)
+  if (is(gset, "list")) gset <- gset[[1]]
+  
+  # Extract phenoData
+  pheno_data <- pData(phenoData(gset))
+  
+  # Create basic metadata frame
+  metadata <- data.frame(
+    geo_accession = rownames(pheno_data),
+    title = pheno_data$title,
+    stringsAsFactors = FALSE
+  )
+  
+  # Get characteristic columns
+  char_columns <- grep("characteristics_ch", colnames(pheno_data), value = TRUE)
+  
+  # Add each characteristics column
+  for (col in char_columns) {
+    metadata[[col]] <- pheno_data[[col]]
+  }
+  
+  return(metadata)
+}
+
+# Usage example:
+geo_id <- "GSE182846" # Replace with your GEO ID
+clinical_metadata <- get_geo_metadata(geo_id)
+```
+
+### 1.2 Get GEO count matrices
+
+```{r}
+data_dir <- '/Users/tom/Desktop/Stanford/RA/GEO182846/GSE182846_RAW'
+
+# Get list of files
+files <- list.files(data_dir, pattern = "1.txt.gz$")
+
+# Read each file and store in a list
+GEO_data <- list()
+for (file in files) {
+  data <- read.delim(file.path(data_dir, file), row.names = 1)
+  GEO_data[[paste0("counts.", file)]] <- data
+}
+```
+
+### 1.3 Processing Seurat
+
+```{r}
+# Create initial Seurat object
+seurat <- CreateSeuratObject(counts = GEO_data, project = "DS1")
+
+# Store gene name mapping in misc slot if you have it
+gene_conversion <- read.csv(file.path(data_dir, "gene_conversion_results.csv"))
+gene_mapping <- setNames(gene_conversion$external_gene_name, 
+                        gene_conversion$ensembl_gene_id)
+seurat@misc$gene_mapping <- gene_mapping
+
+# Update matrix names and ensure consistency
+gene_names <- rownames(GEO_data[[1]])
+count_matrices <- names(seurat@assays$RNA@layers)
+
+for (i in 1:length(count_matrices)) {
+    matrix_name <- count_matrices[i]
+    cell_names <- colnames(GEO_data[[i]])
+    rownames(seurat@assays$RNA@layers[[matrix_name]]) <- gene_names
+    colnames(seurat@assays$RNA@layers[[matrix_name]]) <- cell_names
+}
+
+# Add sample information to track cell origins
+sample_names <- gsub("counts\\.GSM[0-9]+_(.*)", "\\1", count_matrices)
+cell_sample_info <- character(0)
+
+for (i in 1:length(count_matrices)) {
+    matrix_name <- count_matrices[i]
+    n_cells <- ncol(seurat@assays$RNA@layers[[matrix_name]])
+    cell_sample_info <- c(cell_sample_info,
+                         rep(sample_names[i], n_cells))
+}
+seurat$sample <- cell_sample_info
+```
+
+### 1.4 Add metadata
+
+```{r}
+# Add metadata to each cell in the Seurat object
+if (!is.null(metadata)) {
+    # Extract GSM numbers from matrix names
+    gsm_numbers <- unique(gsub("counts\\.(GSM[0-9]+)_.*", "\\1", count_matrices))
+    
+    # Subset metadata to only include our samples
+    sample_metadata <- metadata[metadata$geo_accession %in% gsm_numbers, ]
+    
+    # Add each metadata column to Seurat object
+    for (col in colnames(sample_metadata)) {
+        if (col != "geo_accession") {
+            # Create named vector of metadata values
+            meta_values <- setNames(
+                sample_metadata[[col]],
+                gsub("counts\\.(GSM[0-9]+)_.*", "\\1", count_matrices)
+            )
+            
+            # Map metadata to cells
+            cell_meta <- sapply(
+                gsub("counts\\.(GSM[0-9]+)_.*", "\\1", count_matrices),
+                function(x) meta_values[x]
+            )
+            
+            # Add to Seurat object
+            seurat[[col]] <- unname(cell_meta[match(seurat$sample, names(cell_meta))])
+        }
+    }
+}
+
+# Calculate mitochondrial percentage
+seurat[["percent.mt"]] <- PercentageFeatureSet(seurat, pattern = "^ENSMUSG00000064")
+```
+
+## 2. Quality control module
+
+### 2.1 Quality control
+
+```{r}
+# QC Visualization
+VlnPlot(seurat, 
+        features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
+        group.by = "sample",
+        ncol = 3)
+
+# Filter cells based on QC metrics
+seurat <- subset(seurat, 
+                 subset = nFeature_RNA > 500 &  # Minimum features per cell
+                         nFeature_RNA < 5000 &  # Maximum features per cell
+                         percent.mt < 5)        # Maximum mitochondrial percentage
+
+# Join the filtered layers
+seurat <- JoinLayers(seurat)
+```
+
+### 2.2 PCA
+
+```{r}
+# Normalize data
+seurat <- NormalizeData(seurat)
+
+# Find variable features
+seurat <- FindVariableFeatures(seurat)
+
+# Scale data
+seurat <- ScaleData(seurat)
+
+# Run PCA 
+seurat <- RunPCA(seurat, npcs = 50)
+
+# Elbow plot to determine number of significant PCs
+ElbowPlot(seurat, ndims = 50)
+```
+
+## 3. Dimension reduction and clustering
+
+### 3.1 UMAP
+
+```{r}
+# Find neighbors - typically using number of PCs from elbow plot
+seurat <- FindNeighbors(seurat, dims = 1:20)  # Adjust number of PCs based on your elbow plot
+
+# Run UMAP
+seurat <- RunUMAP(seurat, dims = 1:20)  # Use same number of PCs as FindNeighbors
+
+# Visualize UMAP
+DimPlot(seurat, reduction = "umap", group.by = "sample")
+
+# Can also visualize by other metadata columns, for example:
+DimPlot(seurat, reduction = "umap", group.by = "title")
+
+# Visualize key features on UMAP
+FeaturePlot(seurat,
+            features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
+            ncol = 3)
+```
+
+### 3.2 Clustering
+
+```{r}
+# Find clusters - can adjust resolution to get more/fewer clusters
+seurat <- FindClusters(seurat, resolution = 0.5)
+
+# Visualize clusters on UMAP
+DimPlot(seurat, reduction = "umap", label = TRUE)
+
+# Check cluster composition by sample
+table(seurat$seurat_clusters, seurat$sample)
+
+# Visualize cluster markers
+# Find markers for each cluster
+all.markers <- FindAllMarkers(seurat, 
+                             only.pos = TRUE,              # Only positive markers
+                             min.pct = 0.25,               # Expressed in 25% of cells
+                             logfc.threshold = 0.25)       # Log2FC threshold
+
+# Get top markers per cluster
+top.markers <- all.markers %>%
+               group_by(cluster) %>%
+               slice_head(n = 10)
+
+# Create heatmap of top markers
+DoHeatmap(seurat, 
+          features = top.markers$gene,
+          group.by = "seurat_clusters")
+```
+
+## 4. DE analysis
+
+```{r}
+# One vs All analysis for a specific cluster
+cluster_number <- 0  # Change to cluster of interest
+markers_cluster <- FindMarkers(seurat,
+                             ident.1 = cluster_number,
+                             min.pct = 0.25,
+                             logfc.threshold = 0.25)
+
+# Add gene symbols if you have them in misc
+markers_cluster$gene <- seurat@misc$gene_mapping[rownames(markers_cluster)]
+
+# Visualize results for this cluster
+# Volcano plot
+volcano_data <- markers_cluster
+volcano_data$significant <- volcano_data$p_val_adj < 0.05 & abs(volcano_data$avg_log2FC) > 0.25
+
+ggplot(volcano_data, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
+    geom_point(aes(color = significant)) +
+    scale_color_manual(values = c("grey", "red")) +
+    theme_classic() +
+    geom_vline(xintercept = c(-0.25, 0.25), linetype = "dashed") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+    labs(title = paste("Cluster", cluster_number, "vs All"),
+         color = "Significant")
+
+# Pairwise analysis between two clusters
+cluster1 <- 0  # Change to first cluster of interest
+cluster2 <- 1  # Change to second cluster of interest
+
+markers_pair <- FindMarkers(seurat,
+                          ident.1 = cluster1,
+                          ident.2 = cluster2,
+                          min.pct = 0.25,
+                          logfc.threshold = 0.25)
+
+markers_pair$gene <- seurat@misc$gene_mapping[rownames(markers_pair)]
+
+# Create summary tables of top DE genes
+# Most upregulated in cluster vs all
+head(markers_cluster[order(markers_cluster$avg_log2FC, decreasing = TRUE), ], 10)
+
+# Most downregulated in cluster vs all
+head(markers_cluster[order(markers_cluster$avg_log2FC), ], 10)
+
+# Most differentially expressed between pairs
+head(markers_pair[order(abs(markers_pair$avg_log2FC), decreasing = TRUE), ], 10)
+
+# Visualize top genes on violin plots
+top_genes <- head(rownames(markers_cluster[order(markers_cluster$avg_log2FC, decreasing = TRUE), ]), 6)
+VlnPlot(seurat, features = top_genes, ncol = 3)
+
+# Feature plots of top genes
+FeaturePlot(seurat, features = top_genes, ncol = 3)
+```

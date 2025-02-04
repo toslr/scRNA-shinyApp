@@ -1,3 +1,5 @@
+# R/modules/dimension_reduction_module.R
+
 dimensionReductionUI <- function(id) {
   ns <- NS(id)
   tagList(
