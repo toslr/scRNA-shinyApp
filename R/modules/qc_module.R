@@ -3,10 +3,14 @@
 qcUI <- function(id) {
   ns <- NS(id)
   tagList(
-    tags$strong(textOutput(ns("sampleInfo"))),
-    tags$br(),
-    plotOutput(ns("qcPlot"), height = "600px"),
-    uiOutput(ns("filterControls"))
+    # QC plots container
+    div(class = "qc-plots",
+        plotOutput(ns("qcPlot"), height = "600px")
+    ),
+    # QC controls container
+    div(class = "qc-controls",
+        uiOutput(ns("filterControls"))
+    )
   )
 }
 

@@ -1,6 +1,10 @@
 # R/server/sections.R
 
-setupSections <- function(output, seurat_data, metadata, processed_seurat, clustered_seurat, session) {
+setupSections <- function(input, output, seurat_data, metadata, processed_seurat, 
+                          clustered_seurat, session) {  # Add input and session parameters
+  # Keep track of current checkbox states
+  selected_states <- reactiveVal()
+  
   # Metadata section
   output$metadataSection <- renderUI({
     req(metadata())
@@ -13,6 +17,13 @@ setupSections <- function(output, seurat_data, metadata, processed_seurat, clust
             metadata()
           )
           
+          # Get current checkbox states or initialize if NULL
+          current_states <- selected_states()
+          if(is.null(current_states)) {
+            current_states <- rep(TRUE, nrow(md))
+            selected_states(current_states)
+          }
+          
           datatable(
             md,
             options = list(
@@ -22,9 +33,14 @@ setupSections <- function(output, seurat_data, metadata, processed_seurat, clust
               columnDefs = list(
                 list(
                   targets = 0,
-                  render = JS("function(data, type, row, meta) {
-                    return '<input type=\"checkbox\" class=\"sample-select\" checked data-gsm=\"' + row[1] + '\">';
-                  }"),
+                  render = JS(sprintf("
+                    function(data, type, row, meta) {
+                      return '<input type=\"checkbox\" class=\"sample-select\" ' + 
+                             (meta.row in %s ? 'checked ' : '') +
+                             'data-gsm=\"' + row[1] + '\">';
+                    }",
+                                      jsonlite::toJSON(which(current_states) - 1)
+                  )),
                   orderable = FALSE,
                   width = '30px',
                   className = 'dt-center',
@@ -34,13 +50,6 @@ setupSections <- function(output, seurat_data, metadata, processed_seurat, clust
               initComplete = JS("
                 function(settings, json) {
                   var table = this.api();
-                  
-                  // Initialize selected samples
-                  var initialSelected = [];
-                  table.$('input.sample-select:checked').each(function() {
-                    initialSelected.push($(this).data('gsm'));
-                  });
-                  Shiny.setInputValue('dataInput-selectedSamples', initialSelected);
                   
                   // Handle select-all checkbox
                   $('#select-all-samples').on('change', function() {
@@ -82,9 +91,9 @@ setupSections <- function(output, seurat_data, metadata, processed_seurat, clust
     )
   })
   
-  # Rest of the sections remain unchanged
+  # Other sections...
   output$qcSection <- renderUI({
-    req(seurat_data)
+    req(seurat_data())
     seurat_obj <- seurat_data()
     req(seurat_obj)
     div(id = "qc-section",
@@ -112,5 +121,13 @@ setupSections <- function(output, seurat_data, metadata, processed_seurat, clust
         h3(class = "section-header", "Differential Expression"),
         deAnalysisUI("de")
     )
+  })
+  
+  # Update checkbox states when they change
+  observeEvent(input$`dataInput-selectedSamples`, {
+    if(!is.null(metadata())) {
+      current_states <- metadata()$geo_accession %in% input$`dataInput-selectedSamples`
+      selected_states(current_states)
+    }
   })
 }
