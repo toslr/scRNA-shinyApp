@@ -90,10 +90,10 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
       selected_dir()
     })
     
-    # Data processing with sample selection
+    # Modified data processing part to handle multiple files without joining layers
     observeEvent(input$processData, {
-      req(selected_dir(), selected_samples())
-      req(length(selected_samples()) > 0)
+      req(selected_dir(), input$selectedSamples)
+      req(length(input$selectedSamples) > 0)
       
       print("Starting data processing...")
       
@@ -105,71 +105,82 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
           gene_mapping <- setNames(gene_conversion$external_gene_name, 
                                    gene_conversion$ensembl_gene_id)
           
-          # Filter files based on selected samples
-          all_files <- list.files(selected_dir(), pattern="1.txt.gz$")
-          selected_gsm_pattern <- paste(selected_samples(), collapse="|")
-          files <- grep(selected_gsm_pattern, all_files, value=TRUE)
+          # First get all available files
+          all_files <- list.files(selected_dir(), pattern="\\.txt\\.gz$")
           
-          print(paste("Processing selected files:", paste(files, collapse=", ")))
+          # Only process actually selected GSMs
+          selected_files <- character(0)
+          file_to_gsm <- list()  # Keep track of which file belongs to which GSM
           
-          incProgress(0.2, detail = "Reading expression data")
-          GEO_data <- Read_GEO_Delim(data_dir = selected_dir(), 
-                                     file_pattern = paste0("(", selected_gsm_pattern, ").*1.txt.gz$"))
-          
-          incProgress(0.4, detail = "Creating Seurat object")
-          seurat <- CreateSeuratObject(counts = GEO_data, project = "DS1")
-          seurat@misc$gene_mapping <- gene_mapping
-          
-          incProgress(0.6, detail = "Converting gene names")
-          gene_names <- rownames(GEO_data[[1]])
-          count_matrices <- names(seurat@assays$RNA@layers)
-          
-          for (i in 1:length(count_matrices)) {
-            matrix_name <- count_matrices[i]
-            cell_names <- colnames(GEO_data[[i]])
-            rownames(seurat@assays$RNA@layers[[matrix_name]]) <- gene_names
-            colnames(seurat@assays$RNA@layers[[matrix_name]]) <- cell_names
+          for(gsm in input$selectedSamples) {
+            pattern <- paste0("^", gsm, "_")
+            matches <- grep(pattern, all_files, value=TRUE)
+            selected_files <- c(selected_files, matches)
+            file_to_gsm[matches] <- gsm
           }
           
-          sample_names <- gsub("counts\\.GSM[0-9]+_(.*)", "\\1", count_matrices)
-          cell_sample_info <- character(0)
+          print(paste("Selected files:", paste(selected_files, collapse=", ")))
           
-          for (i in 1:length(count_matrices)) {
-            matrix_name <- count_matrices[i]
-            n_cells <- ncol(seurat@assays$RNA@layers[[matrix_name]])
-            cell_sample_info <- c(cell_sample_info,
-                                  rep(sample_names[i], n_cells))
+          if(length(selected_files) == 0) {
+            stop("No matching files found for selected GSMs")
           }
-          seurat$sample <- cell_sample_info
           
-          if (!is.null(geo_metadata())) {
-            metadata <- geo_metadata()
-            gsm_numbers <- unique(gsub("counts\\.(GSM[0-9]+)_.*", "\\1", count_matrices))
-            sample_metadata <- metadata[metadata$geo_accession %in% gsm_numbers, ]
+          # Initialize list for all Seurat objects
+          seurat_objects <- list()
+          count = 0
+          # Process each file
+          for(file in selected_files) {
+            count = count + 1
+            incProgress(0.9/(length(selected_files)+1), detail = paste("Reading file",count,"of",length(selected_files)))
+            # Read the file
+            data <- Read_GEO_Delim(data_dir = selected_dir(), 
+                                   file_suffix = file)
             
-            for (col in colnames(sample_metadata)) {
-              if (col != "geo_accession") {
-                meta_values <- setNames(
-                  sample_metadata[[col]],
-                  gsub("counts\\.(GSM[0-9]+)_.*", "\\1", count_matrices)
-                )
+            if(length(data) > 0 && !is.null(data[[1]])) {
+              # Create Seurat object for this sample
+              gsm <- file_to_gsm[[file]]
+              
+              seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
+              seurat$sample <- gsm
+              
+              # Add GEO metadata if available
+              if (!is.null(geo_metadata())) {
+                metadata <- geo_metadata()
+                sample_meta <- metadata[metadata$geo_accession == gsm, ]
                 
-                cell_meta <- sapply(
-                  gsub("counts\\.(GSM[0-9]+)_.*", "\\1", count_matrices),
-                  function(x) meta_values[x]
-                )
-                
-                seurat[[col]] <- unname(cell_meta[match(seurat$sample, names(cell_meta))])
+                for(col in setdiff(colnames(sample_meta), "geo_accession")) {
+                  seurat[[col]] <- sample_meta[[col]][1]
+                }
               }
+              
+              # Add percent.mt
+              seurat[["percent.mt"]] <- PercentageFeatureSet(seurat,
+                                                             pattern = "^ENSMUSG00000064")
+              
+              # Store gene mapping
+              seurat@misc$gene_mapping <- gene_mapping
+              
+              # Store in list
+              seurat_objects[[gsm]] <- seurat
+              
             }
           }
           
-          seurat[["percent.mt"]] <- PercentageFeatureSet(seurat,
-                                                         pattern = "^ENSMUSG00000064")
-          seurat_obj(seurat)
+          # If multiple objects, merge them
+          if(length(seurat_objects) > 1) {
+            final_seurat <- merge(seurat_objects[[1]], 
+                                  y = seurat_objects[2:length(seurat_objects)],
+                                  add.cell.ids = names(seurat_objects))
+          } else {
+            final_seurat <- seurat_objects[[1]]
+          }
+          
+          # Store the object
+          seurat_obj(final_seurat)
           
         }, error = function(e) {
           print(paste("Error in data processing:", e$message))
+          print(traceback())
         })
       })
     })
