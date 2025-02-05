@@ -8,7 +8,7 @@ buildServer <- function() {
     # Extract Seurat object with proper reactive chain
     seurat_data <- reactive({
       req(data_input())
-      input_data <- data_input()  # Remove the extra () since data_input() already returns the list
+      input_data <- data_input()
       req(input_data$seurat)
       input_data$seurat
     })
@@ -39,7 +39,8 @@ buildServer <- function() {
     # Setup different components using the modularized functions
     setupObservers(steps_completed, seurat_data, metadata, processed_seurat, 
                    clustered_seurat, de_module)
-    setupSections(output, seurat_data, metadata, processed_seurat, clustered_seurat)
+    setupSections(output, seurat_data, metadata, processed_seurat, 
+                  clustered_seurat, session)  # Pass session here
     setupNavigation(output, steps_completed)
   }
 }

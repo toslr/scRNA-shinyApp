@@ -77,6 +77,63 @@
   margin-bottom: 100px; 
 }
 
+/* Updated metadata section styles */
 #metadata-section {
   padding-top: 15px;
+}
+
+/* Sample selection column styles */
+#metadata-section .sample-select-column {
+  padding-top: 52px;
+  border-right: 1px solid #e3e3e3;
+  padding-right: 15px;
+}
+
+#metadata-section .sample-select-column .checkbox {
+  margin-top: 4px;
+  margin-bottom: 4px;
+  padding-left: 20px;
+}
+
+#metadata-section .sample-select-column label {
+  font-weight: normal;
+  font-size: 0.9em;
+}
+
+/* Sample selection buttons */
+#metadata-section .sample-select-buttons {
+  margin-bottom: 15px;
+}
+
+#metadata-section .sample-select-buttons .btn {
+  margin-right: 10px;
+  background-color: #8C1515;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  font-size: 0.9em;
+}
+
+#metadata-section .sample-select-buttons .btn:hover {
+  background-color: #A61919;
+}
+
+/* Checkbox scrollable container */
+#metadata-section .checkbox-container {
+  max-height: 600px;
+  overflow-y: auto;
+  border: 1px solid #e3e3e3;
+  border-radius: 4px;
+  padding: 10px;
+  background-color: #f9f9f9;
+}
+
+/* DataTable adjustments */
+#metadata-section .dataTables_wrapper {
+  padding-top: 0;
+}
+
+#metadata-section .dataTable {
+  border: 1px solid #e3e3e3;
+  border-radius: 4px;
 }

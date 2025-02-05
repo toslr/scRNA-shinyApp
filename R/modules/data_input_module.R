@@ -7,7 +7,7 @@ dataInputUI <- function(id) {
     # Add GEO input field
     fluidRow(
       column(12,
-             strong("Please input yout GEO Series ID and browse to find your expression files."),
+             strong("Please input your GEO Series ID and browse to find your expression files."),
              h2(),
              textInput(ns("geoID"), "GEO Series ID (e.g., GSE182846)", 
                        placeholder = "GSExxxxxx"),
@@ -19,8 +19,7 @@ dataInputUI <- function(id) {
              verbatimTextOutput(ns("dirpath")),
              actionButton(ns("processData"), "Read Data")
       )
-    ),
-
+    )
   )
 }
 
@@ -29,6 +28,7 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
     # Create reactive values
     geo_metadata <- reactiveVal(NULL)
     seurat_obj <- reactiveVal(NULL)
+    selected_samples <- reactiveVal(NULL)
     
     # GEO metadata fetching
     observeEvent(input$fetchGEO, {
@@ -57,8 +57,9 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
             metadata[[col]] <- pheno_data[[col]]
           }
           
-          # Store metadata
+          # Store metadata and initialize all samples as selected
           geo_metadata(metadata)
+          selected_samples(metadata$geo_accession)
         })
         
         output$geoStatus <- renderText({
@@ -70,6 +71,25 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
           paste("Error fetching GEO data:", e$message)
         })
       })
+    })
+    
+    # Handle select/deselect all buttons
+    observeEvent(input$selectAll, {
+      req(geo_metadata())
+      selected_samples(geo_metadata()$geo_accession)
+      updateCheckboxGroupInput(session, "selectedSamples",
+                               selected = geo_metadata()$geo_accession)
+    })
+    
+    observeEvent(input$deselectAll, {
+      selected_samples(character(0))
+      updateCheckboxGroupInput(session, "selectedSamples",
+                               selected = character(0))
+    })
+    
+    # Update selected_samples reactive value when selection changes
+    observeEvent(input$selectedSamples, {
+      selected_samples(input$selectedSamples)
     })
     
     # Directory selection
@@ -84,10 +104,12 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
       selected_dir()
     })
     
-    # Data processing
+    # Data processing with sample selection
     observeEvent(input$processData, {
-      req(selected_dir())
-      print("Starting data processing...")  # Debug message
+      req(selected_dir(), selected_samples())
+      req(length(selected_samples()) > 0)
+      
+      print("Starting data processing...")
       
       withProgress(message = 'Reading data...', value = 0, {
         tryCatch({
@@ -97,12 +119,16 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
           gene_mapping <- setNames(gene_conversion$external_gene_name, 
                                    gene_conversion$ensembl_gene_id)
           
-          files <- list.files(selected_dir(), pattern="1.txt.gz$")
-          print(paste("Found files:", paste(files, collapse=", ")))
+          # Filter files based on selected samples
+          all_files <- list.files(selected_dir(), pattern="1.txt.gz$")
+          selected_gsm_pattern <- paste(selected_samples(), collapse="|")
+          files <- grep(selected_gsm_pattern, all_files, value=TRUE)
+          
+          print(paste("Processing selected files:", paste(files, collapse=", ")))
           
           incProgress(0.2, detail = "Reading expression data")
           GEO_data <- Read_GEO_Delim(data_dir = selected_dir(), 
-                                     file_suffix = '1.txt.gz')
+                                     file_pattern = paste0("(", selected_gsm_pattern, ").*1.txt.gz$"))
           
           incProgress(0.4, detail = "Creating Seurat object")
           seurat <- CreateSeuratObject(counts = GEO_data, project = "DS1")
@@ -157,7 +183,7 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
           seurat_obj(seurat)
           
         }, error = function(e) {
-          print(paste("Error in data processing:", e$message))  # Debug error message
+          print(paste("Error in data processing:", e$message))
         })
       })
     })
