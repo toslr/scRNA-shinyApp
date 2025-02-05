@@ -73,21 +73,7 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA')) {
       })
     })
     
-    # Handle select/deselect all buttons
-    observeEvent(input$selectAll, {
-      req(geo_metadata())
-      selected_samples(geo_metadata()$geo_accession)
-      updateCheckboxGroupInput(session, "selectedSamples",
-                               selected = geo_metadata()$geo_accession)
-    })
-    
-    observeEvent(input$deselectAll, {
-      selected_samples(character(0))
-      updateCheckboxGroupInput(session, "selectedSamples",
-                               selected = character(0))
-    })
-    
-    # Update selected_samples reactive value when selection changes
+    # Update selected_samples when checkboxes change
     observeEvent(input$selectedSamples, {
       selected_samples(input$selectedSamples)
     })

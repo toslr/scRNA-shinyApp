@@ -1,43 +1,54 @@
 # R/server/sections.R
 
 setupSections <- function(output, seurat_data, metadata, processed_seurat, clustered_seurat, session) {
-  # Metadata section with side-by-side layout
+  # Metadata section
   output$metadataSection <- renderUI({
     req(metadata())
-    ns <- session$ns  # Get namespace from session
-    
     div(id = "metadata-section",
         h3(class = "section-header", "Sample Metadata"),
-        fluidRow(
-          # Left column for checkboxes
-          column(2,
-                 class = "sample-select-column",
-                 div(class = "sample-select-buttons",
-                     actionButton(ns("selectAll"), "Select All"),
-                     actionButton(ns("deselectAll"), "Deselect All")
-                 ),
-                 div(class = "checkbox-container",
-                     checkboxGroupInput(ns("selectedSamples"), 
-                                        label = NULL,
-                                        choices = setNames(metadata()$geo_accession, 
-                                                           metadata()$geo_accession))
-                 )
-          ),
-          # Right column for metadata table
-          column(10,
-                 renderDT({
-                   datatable(metadata(),
-                             options = list(
-                               pageLength = 15,
-                               scrollX = TRUE,
-                               dom = 'tlip'
-                             ),
-                             rownames = FALSE,
-                             selection = 'none',
-                             class = 'cell-border stripe')
-                 })
+        renderDT({
+          # Add a selection column to the metadata
+          md <- metadata()
+          md$selected <- TRUE  # Default all to selected
+          
+          datatable(
+            md,
+            options = list(
+              pageLength = 15,
+              scrollX = TRUE,
+              dom = 'tlip',
+              columnDefs = list(
+                list(
+                  targets = 0,  # First column (selection)
+                  render = JS("function(data, type, row, meta) {
+                    return '<input type=\"checkbox\" ' + (data ? 'checked' : '') + '>';
+                  }"),
+                  orderable = FALSE
+                )
+              ),
+              # Custom initialization to set up checkbox handling
+              initComplete = JS("
+                function(settings, json) {
+                  var table = this.api();
+                  // Handle checkbox changes
+                  table.on('change', 'input[type=\"checkbox\"]', function() {
+                    var $row = $(this).closest('tr');
+                    var data = table.row($row).data();
+                    var selectedGSMs = [];
+                    table.$('input[type=\"checkbox\"]:checked').each(function() {
+                      var rowData = table.row($(this).closest('tr')).data();
+                      selectedGSMs.push(rowData[1]); // geo_accession is in second column
+                    });
+                    Shiny.setInputValue('selectedSamples', selectedGSMs);
+                  });
+                }
+              ")
+            ),
+            selection = 'none',
+            escape = FALSE,
+            class = 'cell-border stripe'
           )
-        )
+        })
     )
   })
   
