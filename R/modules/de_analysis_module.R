@@ -238,24 +238,40 @@ deAnalysisServer <- function(id, clustered_seurat) {
       }
     }
     
-    # One vs All analysis
+    # One vs All analysis (modified to handle gene names properly)
     observeEvent(input$runDEAll, {
       req(clustered_seurat(), input$targetClusterAll)
+      req(active_cluster_list())
+      
       withProgress(message = 'Computing one vs all differential expression...', {
-        de_results <- FindMarkers(clustered_seurat(),
+        # Subset Seurat object to only include active clusters
+        active_cells <- clustered_seurat()$seurat_clusters %in% active_cluster_list()
+        seurat_subset <- subset(clustered_seurat(), cells = colnames(clustered_seurat())[active_cells])
+        
+        de_results <- FindMarkers(seurat_subset,
                                   ident.1 = input$targetClusterAll,
                                   ident.2 = NULL,
                                   min.pct = 0.25,
                                   logfc.threshold = 0.25)
         
-        de_results$gene <- clustered_seurat()@misc$gene_mapping[rownames(de_results)]
-        de_results$comparison <- paste(get_cluster_label(input$targetClusterAll), "vs All")
+        # Add gene names - with error handling
+        gene_mapping <- clustered_seurat()@misc$gene_mapping
+        if (!is.null(gene_mapping)) {
+          # Map gene names and handle missing mappings
+          de_results$gene <- gene_mapping[rownames(de_results)]
+          de_results$gene[is.na(de_results$gene)] <- rownames(de_results)[is.na(de_results$gene)]
+        } else {
+          warning("Gene mapping not found in Seurat object")
+          de_results$gene <- rownames(de_results)
+        }
+        
+        de_results$comparison <- paste(get_cluster_label(input$targetClusterAll), "vs All Active")
         de_genes(de_results)
         de_status("completed")
       })
     })
     
-    # Pairwise analysis
+    # Pairwise analysis (modified to handle gene names properly)
     observeEvent(input$runDEPair, {
       req(clustered_seurat(), input$targetCluster1, input$targetCluster2)
       req(input$targetCluster1 != input$targetCluster2)
@@ -267,7 +283,17 @@ deAnalysisServer <- function(id, clustered_seurat) {
                                   min.pct = 0.25,
                                   logfc.threshold = 0.25)
         
-        de_results$gene <- clustered_seurat()@misc$gene_mapping[rownames(de_results)]
+        # Add gene names - with error handling
+        gene_mapping <- clustered_seurat()@misc$gene_mapping
+        if (!is.null(gene_mapping)) {
+          # Map gene names and handle missing mappings
+          de_results$gene <- gene_mapping[rownames(de_results)]
+          de_results$gene[is.na(de_results$gene)] <- rownames(de_results)[is.na(de_results$gene)]
+        } else {
+          warning("Gene mapping not found in Seurat object")
+          de_results$gene <- rownames(de_results)
+        }
+        
         de_results$comparison <- paste(get_cluster_label(input$targetCluster1),
                                        "vs",
                                        get_cluster_label(input$targetCluster2))
