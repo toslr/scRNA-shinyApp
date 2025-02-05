@@ -7,9 +7,11 @@ setupSections <- function(output, seurat_data, metadata, processed_seurat, clust
     div(id = "metadata-section",
         h3(class = "section-header", "Sample Metadata"),
         renderDT({
-          # Add a selection column to the metadata
-          md <- metadata()
-          md$selected <- TRUE  # Default all to selected
+          # Add empty column for checkboxes at the beginning
+          md <- cbind(
+            Select = rep("", nrow(metadata())),
+            metadata()
+          )
           
           datatable(
             md,
@@ -19,34 +21,62 @@ setupSections <- function(output, seurat_data, metadata, processed_seurat, clust
               dom = 'tlip',
               columnDefs = list(
                 list(
-                  targets = 0,  # First column (selection)
+                  targets = 0,
                   render = JS("function(data, type, row, meta) {
-                    return '<input type=\"checkbox\" ' + (data ? 'checked' : '') + '>';
+                    return '<input type=\"checkbox\" class=\"sample-select\" checked data-gsm=\"' + row[1] + '\">';
                   }"),
-                  orderable = FALSE
+                  orderable = FALSE,
+                  width = '30px',
+                  className = 'dt-center',
+                  title = '<input type=\"checkbox\" id=\"select-all-samples\" checked>'
                 )
               ),
-              # Custom initialization to set up checkbox handling
               initComplete = JS("
                 function(settings, json) {
                   var table = this.api();
-                  // Handle checkbox changes
-                  table.on('change', 'input[type=\"checkbox\"]', function() {
-                    var $row = $(this).closest('tr');
-                    var data = table.row($row).data();
+                  
+                  // Initialize selected samples
+                  var initialSelected = [];
+                  table.$('input.sample-select:checked').each(function() {
+                    initialSelected.push($(this).data('gsm'));
+                  });
+                  Shiny.setInputValue('dataInput-selectedSamples', initialSelected);
+                  
+                  // Handle select-all checkbox
+                  $('#select-all-samples').on('change', function() {
+                    var checked = this.checked;
                     var selectedGSMs = [];
-                    table.$('input[type=\"checkbox\"]:checked').each(function() {
-                      var rowData = table.row($(this).closest('tr')).data();
-                      selectedGSMs.push(rowData[1]); // geo_accession is in second column
+                    
+                    table.$('input.sample-select').each(function() {
+                      $(this).prop('checked', checked);
+                      if (checked) {
+                        selectedGSMs.push($(this).data('gsm'));
+                      }
                     });
-                    Shiny.setInputValue('selectedSamples', selectedGSMs);
+                    
+                    Shiny.setInputValue('dataInput-selectedSamples', selectedGSMs);
+                  });
+                  
+                  // Handle individual checkboxes
+                  table.on('change', 'input.sample-select', function() {
+                    var selectedGSMs = [];
+                    table.$('input.sample-select:checked').each(function() {
+                      selectedGSMs.push($(this).data('gsm'));
+                    });
+                    Shiny.setInputValue('dataInput-selectedSamples', selectedGSMs);
+                    
+                    // Update header checkbox
+                    var allChecked = table.$('input.sample-select:not(:checked)').length === 0;
+                    $('#select-all-samples').prop('checked', allChecked);
                   });
                 }
               ")
             ),
             selection = 'none',
             escape = FALSE,
-            class = 'cell-border stripe'
+            class = 'cell-border stripe',
+            colnames = c("", names(metadata())),
+            rownames = FALSE
           )
         })
     )
