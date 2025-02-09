@@ -21,12 +21,9 @@ deAnalysisServer <- function(id, clustered_seurat) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Reactive value to store cluster labels
     cluster_labels <- reactiveVal(NULL)
-    # Reactive value to store active/inactive status of clusters
     active_clusters <- reactiveVal(NULL)
     
-    # Reactive to safely get cluster information
     clusters <- reactive({
       req(clustered_seurat())
       req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))

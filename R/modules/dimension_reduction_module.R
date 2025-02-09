@@ -4,7 +4,7 @@ dimensionReductionUI <- function(id) {
   ns <- NS(id)
   tagList(
     plotOutput(ns("elbowPlot"), height = "400px"),
-    textOutput(ns("suggestedDims")),  # Added suggestion text
+    textOutput(ns("suggestedDims")),
     uiOutput(ns("dimControls")),
     plotOutput(ns("umapPlot"), height = "400px"),
     uiOutput(ns("clusterControls")),
@@ -13,17 +13,14 @@ dimensionReductionUI <- function(id) {
 }
 
 find_elbow <- function(x, y) {
-  # Focus on the rate of change
+  # Focus on the rate of change and look for where the rate of change stabilizes
   diffs <- diff(y) / diff(x)
   
-  # Look for where the rate of change stabilizes
-  # Use a smaller window to be more sensitive to early changes
-  window_size <- 3
+  window_size <- 3 # Adjustable
   rolling_std <- sapply(1:(length(diffs) - window_size), function(i) {
     sd(diffs[i:(i + window_size)])
   })
   
-  # Find where the variability in slope significantly decreases
   threshold <- mean(rolling_std) * 0.1  # Adjust this threshold as needed
   elbow_idx <- which(rolling_std < threshold)[1]
   
@@ -73,7 +70,7 @@ dimensionReductionServer <- function(id, processed_seurat) {
           renderPrint("Please adjust the number of PC for reduction"),
           numericInput(ns("nDims"), 
                        "Number of dimensions for UMAP:", 
-                       value = suggested_dims(),  # Use suggested dims as default
+                       value = suggested_dims(),
                        min = 2,
                        max = ncol(Embeddings(processed_seurat(), "pca"))),
           actionButton(ns("runUMAP"), "Run UMAP")
@@ -81,6 +78,7 @@ dimensionReductionServer <- function(id, processed_seurat) {
       )
     })
     
+    # Compute UMAP
     seurat_with_umap <- eventReactive(input$runUMAP, {
       req(processed_seurat(), input$nDims)
       withProgress(message = 'Computing UMAP...', {
@@ -90,6 +88,7 @@ dimensionReductionServer <- function(id, processed_seurat) {
       })
     })
     
+    # Clustering xontrols
     output$clusterControls <- renderUI({
       req(seurat_with_umap())
       tagList(
@@ -107,6 +106,7 @@ dimensionReductionServer <- function(id, processed_seurat) {
       )
     })
     
+    # Cluster the data
     clustered_seurat <- eventReactive(input$runClustering, {
       req(seurat_with_umap(), input$nDims, input$resolution)
       withProgress(message = 'Clustering...', {
@@ -117,12 +117,14 @@ dimensionReductionServer <- function(id, processed_seurat) {
       })
     })
     
+    # UMAP plot
     output$umapPlot <- renderPlot({
       req(seurat_with_umap())
       req("umap" %in% names(seurat_with_umap()@reductions))
       DimPlot(seurat_with_umap(), reduction = "umap")
     })
     
+    # Cluster plot
     output$clusterPlot <- renderPlot({
       req(clustered_seurat())
       req("umap" %in% names(clustered_seurat()@reductions))

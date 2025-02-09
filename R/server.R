@@ -2,23 +2,22 @@
 
 buildServer <- function() {
   function(input, output, session) {
-    # Get data from input module
-    data_input <- dataInputServer("dataInput")
+    print("Starting server initialization")
+    
+    # Initialize metadata module first
+    metadata_module <- metadataServer("metadata")
+    
+    metadata_handler <- reactive({
+      metadata_module
+    })
+    
+    # Initialize data input module
+    data_input <- dataInputServer("dataInput", metadata_module = metadata_module)
     
     # Extract Seurat object with proper reactive chain
     seurat_data <- reactive({
       req(data_input())
-      input_data <- data_input()
-      req(input_data$seurat)
-      input_data$seurat
-    })
-    
-    # Extract metadata if needed
-    metadata <- reactive({
-      req(data_input())
-      input_data <- data_input()
-      req(input_data$metadata)
-      input_data$metadata
+      data_input()
     })
     
     # Chain the reactive values through the modules
@@ -36,11 +35,18 @@ buildServer <- function() {
       de = FALSE
     )
     
-    # Setup different components using the modularized functions
-    setupObservers(steps_completed, seurat_data, metadata, processed_seurat, 
+    # Setup observers
+    setupObservers(steps_completed, seurat_data, metadata_module, processed_seurat, 
                    clustered_seurat, de_module)
-    setupSections(input,output, seurat_data, metadata, processed_seurat, 
-                  clustered_seurat, session)  # Pass session here
+    
+    # Setup sections
+    setupSections(input, output, seurat_data, metadata_handler, processed_seurat, 
+                  clustered_seurat, session)
+    
+    # Setup navigation
     setupNavigation(output, steps_completed)
+    
+
+    print("Server initialization complete")
   }
 }

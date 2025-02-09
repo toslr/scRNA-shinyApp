@@ -13,9 +13,15 @@ buildUI <- function() {
     
     # Main layout
     div(
-      # Fixed sidebar
+      # Sidebar
       div(id = "sidebar",
-          dataInputUI("dataInput"),
+          div(class = "sidebar-section",
+              metadataUI("metadata")
+          ),
+          tags$hr(),
+          div(class = "sidebar-section",
+              dataInputUI("dataInput")
+          ),
           tags$hr(),
           h4("Navigation"),
           div(
@@ -33,9 +39,9 @@ buildUI <- function() {
               style = "text-align: left; color: #666; font-size: 0.9em; margin-bottom: 5px;")
           )
       ),
+      
       # Scrollable main content
       div(id = "main-content",
-          #dataMetadataUI("dataInput"),
           uiOutput("metadataSection"),
           uiOutput("qcSection"),
           uiOutput("dimredSection"),
