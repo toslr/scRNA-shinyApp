@@ -6,7 +6,11 @@ deAnalysisUI <- function(id) {
   tagList(
     # Static container for cluster management
     wellPanel(
-      h4("Cluster Management"),
+      div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;",
+          h4(style = "margin: 0;", "Cluster Management"),
+          actionButton(ns("updateAllLabels"), "Update All Cluster Labels",
+                       class = "btn-primary")
+      ),
       div(id = ns("clusterManagement"),
           style = "max-height: 300px; overflow-y: auto;",
           uiOutput(ns("clusterControls"))
@@ -23,6 +27,19 @@ deAnalysisServer <- function(id, clustered_seurat) {
     
     cluster_labels <- reactiveVal(NULL)
     active_clusters <- reactiveVal(NULL)
+    temp_labels <- reactiveVal(NULL)
+    
+    
+    label_inputs <- reactiveValues()
+    
+    get_cluster_label <- function(cluster) {
+      labels <- cluster_labels()
+      if (!is.null(labels) && !is.null(labels[as.character(cluster)])) {
+        labels[as.character(cluster)]
+      } else {
+        paste("Cluster", cluster)
+      }
+    }
     
     clusters <- reactive({
       req(clustered_seurat())
@@ -53,6 +70,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
         }
         
         cluster_labels(new_labels)
+        temp_labels(new_labels)
       }
       
       # Initialize active status if needed
@@ -82,45 +100,84 @@ deAnalysisServer <- function(id, clustered_seurat) {
       names(active_clusters()[active_clusters() == TRUE])
     })
     
-    # Render just the cluster management controls
+    # Render cluster controls
     output$clusterControls <- renderUI({
       req(clustered_seurat())
       req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
       req(clusters())
-      req(cluster_labels())
+      req(temp_labels())
       req(active_clusters())
       
       available_clusters <- clusters()
-      current_labels <- cluster_labels()
+      current_temp_labels <- temp_labels()
       current_active <- active_clusters()
       
       tagList(
         lapply(available_clusters, function(cluster) {
           div(style = "margin-bottom: 10px;",
               fluidRow(
+                column(1,
+                       checkboxInput(ns(paste0("active_", cluster)), 
+                                     label=NULL,
+                                     value = current_active[[as.character(cluster)]])
+                ),
                 column(4, 
                        tags$label(paste("Cluster", cluster)),
                        textInput(ns(paste0("label_", cluster)),
                                  label = NULL,
-                                 value = current_labels[[as.character(cluster)]])
-                ),
-                column(2,
-                       div(style = "margin-top: 5px;",
-                           actionButton(ns(paste0("update_", cluster)), "Update",
-                                        class = "btn-sm")
-                       )
-                ),
-                column(2,
-                       div(style = "margin-top: 5px;",
-                           checkboxInput(ns(paste0("active_", cluster)), 
-                                         "Active",
-                                         value = current_active[[as.character(cluster)]])
-                       )
+                                 value = current_temp_labels[[as.character(cluster)]])
                 )
+
               )
           )
         })
       )
+    })
+    
+    # Update label_inputs when text changes
+    observe({
+      req(clusters())
+      for(cluster in clusters()) {
+        local({
+          local_cluster <- cluster
+          input_id <- paste0("label_", local_cluster)
+          
+          observeEvent(input[[input_id]], {
+            label_inputs[[input_id]] <- input[[input_id]]
+          }, ignoreInit = TRUE)
+        })
+      }
+    })
+    
+    # Update temp_labels only when update button is clicked
+    observeEvent(input$updateAllLabels, {
+      req(clusters())
+      current_temp <- temp_labels()
+      
+      for(cluster in clusters()) {
+        input_id <- paste0("label_", cluster)
+        if(!is.null(label_inputs[[input_id]])) {
+          current_temp[as.character(cluster)] <- label_inputs[[input_id]]
+        }
+      }
+      
+      temp_labels(current_temp)
+      cluster_labels(current_temp)
+    })
+    
+    # Handle active status updates
+    observe({
+      req(clusters())
+      available_clusters <- clusters()
+      
+      lapply(available_clusters, function(cluster) {
+        observeEvent(input[[paste0("active_", cluster)]], {
+          req(active_clusters())
+          current_active <- active_clusters()
+          current_active[as.character(cluster)] <- input[[paste0("active_", cluster)]]
+          active_clusters(current_active)
+        })
+      })
     })
     
     # Render the analysis UI separately
@@ -172,68 +229,8 @@ deAnalysisServer <- function(id, clustered_seurat) {
       )
     })
     
-    # Handle cluster label updates
-    observe({
-      req(clusters())
-      available_clusters <- clusters()
-      
-      lapply(available_clusters, function(cluster) {
-        # Handle label updates
-        observeEvent(input[[paste0("update_", cluster)]], {
-          req(cluster_labels())
-          new_label <- input[[paste0("label_", cluster)]]
-          current_labels <- cluster_labels()
-          current_labels[as.character(cluster)] <- new_label
-          cluster_labels(current_labels)
-        })
-        
-        # Handle active status updates
-        observeEvent(input[[paste0("active_", cluster)]], {
-          req(active_clusters())
-          current_active <- active_clusters()
-          current_active[as.character(cluster)] <- input[[paste0("active_", cluster)]]
-          active_clusters(current_active)
-        })
-      })
-    })
-    
-    # One vs All analysis (modified to use only active clusters)
-    observeEvent(input$runDEAll, {
-      req(clustered_seurat(), input$targetClusterAll)
-      req(active_cluster_list())
-      
-      withProgress(message = 'Computing one vs all differential expression...', {
-        # Subset Seurat object to only include active clusters
-        active_cells <- clustered_seurat()$seurat_clusters %in% active_cluster_list()
-        seurat_subset <- subset(clustered_seurat(), cells = colnames(clustered_seurat())[active_cells])
-        
-        de_results <- FindMarkers(seurat_subset,
-                                  ident.1 = input$targetClusterAll,
-                                  ident.2 = NULL,
-                                  min.pct = 0.25,
-                                  logfc.threshold = 0.25)
-        
-        de_results$gene <- clustered_seurat()@misc$gene_mapping[rownames(de_results)]
-        de_results$comparison <- paste(get_cluster_label(input$targetClusterAll), "vs All Active")
-        de_genes(de_results)
-        de_status("completed")
-      })
-    })
-    
-    # Reactive value to store current DE results
     de_genes <- reactiveVal()
-    # Reactive value to track whether DE was run
     de_status <- reactiveVal(NULL)
-    
-    # Get cluster label for plot titles
-    get_cluster_label <- function(cluster) {
-      labels <- cluster_labels()
-      if (!is.null(labels) && !is.null(labels[as.character(cluster)])) {
-        labels[as.character(cluster)]
-      } else {
-        paste("Cluster", cluster)
-      }
-    }
     
     # One vs All analysis (modified to handle gene names properly)
     observeEvent(input$runDEAll, {
