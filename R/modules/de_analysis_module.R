@@ -127,7 +127,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
                                  label = NULL,
                                  value = current_temp_labels[[as.character(cluster)]])
                 )
-
+                
               )
           )
         })
@@ -225,7 +225,9 @@ deAnalysisServer <- function(id, clustered_seurat) {
           )
         ),
         plotOutput(ns("volcanoPlot"), height = "400px"),
-        DT::dataTableOutput(ns("deTable"))
+        DT::dataTableOutput(ns("deTable")),
+        uiOutput(ns("heatmapControls")),
+        plotOutput(ns("heatmapPlot"), height = "600px")
       )
     })
     
@@ -321,6 +323,82 @@ deAnalysisServer <- function(id, clustered_seurat) {
                     rownames = FALSE) %>%
         DT::formatSignif(columns = c("p_val", "p_val_adj"), digits = 3) %>%
         DT::formatRound(columns = c("avg_log2FC"), digits = 2)
+    })
+    
+    # Show heatmap controls after DE analysis
+    output$heatmapControls <- renderUI({
+      req(de_genes())
+      
+      div(
+        style = "margin-top: 20px;",
+        wellPanel(
+          h4("Generate Expression Heatmap"),
+          fluidRow(
+            column(6,
+                   numericInput(ns("top_n_genes"), 
+                                "Number of top DE genes:", 
+                                value = 20, 
+                                min = 5, 
+                                max = 100)
+            ),
+            column(6,
+                   actionButton(ns("generate_heatmap"), "Generate Heatmap")
+            )
+          )
+        )
+      )
+    })
+    
+    # Generate heatmap
+    observeEvent(input$generate_heatmap, {
+      req(clustered_seurat(), input$top_n_genes, de_genes())
+      
+      withProgress(message = 'Generating heatmap...', {
+        de_results <- de_genes()
+        
+        # Get top genes
+        top_genes <- rownames(de_results[order(de_results$p_val_adj), ])[1:input$top_n_genes]
+        
+        # Get expression data
+        seurat_obj <- clustered_seurat()
+        expr_data <- GetAssayData(seurat_obj, slot = "data")[top_genes, ]
+        
+        # Calculate cluster means
+        clusters <- seurat_obj$seurat_clusters
+        unique_clusters <- sort(unique(clusters))
+        
+        # Create named vector for column labels using cluster labels
+        column_labels <- sapply(unique_clusters, get_cluster_label)
+        
+        cluster_means <- sapply(unique_clusters, function(clust) {
+          rowMeans(expr_data[, clusters == clust, drop = FALSE])
+        })
+        colnames(cluster_means) <- column_labels
+        
+        # Scale data
+        scaled_data <- t(scale(t(cluster_means)))
+        
+        # Get gene labels
+        gene_mapping <- seurat_obj@misc$gene_mapping
+        gene_labels <- if (!is.null(gene_mapping)) {
+          gene_mapping[rownames(scaled_data)]
+        } else {
+          rownames(scaled_data)
+        }
+        gene_labels[is.na(gene_labels)] <- rownames(scaled_data)[is.na(gene_labels)]
+        
+        # Generate heatmap
+        output$heatmapPlot <- renderPlot({
+          pheatmap(scaled_data,
+                   labels_row = gene_labels,
+                   labels_col = column_labels,
+                   main = paste("Top", input$top_n_genes, "DE Genes"),
+                   angle_col = 45,
+                   fontsize_row = 10,
+                   cluster_cols = FALSE,
+                   treeheight_row = 0)
+        })
+      })
     })
     
     # Return results, status, and labels

@@ -12,7 +12,7 @@ library(scCustomize)
 library(shinyjs)
 library(DT)
 library(GEOquery)
-
+library(pheatmap)
 # Source all module files
 source("R/ui.R")
 source("R/server.R")
