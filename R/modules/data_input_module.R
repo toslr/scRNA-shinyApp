@@ -15,13 +15,28 @@ dataInputUI <- function(id) {
   )
 }
 
-dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), metadata_module) {
+dataInputServer <- function(id, metadata_module) {
   moduleServer(id, function(input, output, session) {
     # Create reactive values
     seurat_obj <- reactiveVal(NULL)
     
+    # Define available volumes - now including more root directories
+    volumes <- c(
+      Home = path.expand("~"),
+      Root = "/",
+      Desktop = path.expand("~/Desktop"),
+      Documents = path.expand("~/Documents"),
+      'Current Dir' = getwd()
+    )
+    
     # Directory selection
-    shinyDirChoose(input, 'dir', roots = volumes, session = session)
+    shinyDirChoose(
+      input, 
+      'dir', 
+      roots = volumes,
+      session = session,
+      restrictions = system.file(package = "base")  # Allows browsing through subdirectories
+    )
     
     selected_dir <- reactive({
       req(input$dir)
