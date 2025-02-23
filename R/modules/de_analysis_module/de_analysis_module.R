@@ -154,11 +154,16 @@ deAnalysisServer <- function(id, clustered_seurat) {
     
     de_genes <- reactiveVal()
     de_status <- reactiveVal(NULL)
+    analysis_state <- reactiveVal("none")
+    general_heatmap_genes <- reactiveVal(NULL)
     
     # One vs All analysis (modified to handle gene names properly)
     observeEvent(input$runDEAll, {
       req(clustered_seurat(), input$targetClusterAll)
       req(active_cluster_list())
+      
+      print("Running one vs all analysis")
+      analysis_state("one_vs_all")
       
       withProgress(message = 'Computing one vs all differential expression...', {
         # Subset Seurat object to only include active clusters
@@ -170,6 +175,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
         de_results$comparison <- paste(getClusterLabel(input$targetClusterAll,cluster_labels()), "vs All Active")
         de_genes(de_results)
         de_status("completed")
+        print("One vs all analysis completed")
       })
     })
     
@@ -178,6 +184,8 @@ deAnalysisServer <- function(id, clustered_seurat) {
       req(clustered_seurat(), input$targetCluster1, input$targetCluster2)
       req(input$targetCluster1 != input$targetCluster2)
       
+      print("Running pairwise analysis")
+      analysis_state("pairwise")
       withProgress(message = 'Computing pairwise differential expression...', {
         
         de_results <- performDEanalysis(clustered_seurat(), input$targetCluster1, input$targetCluster2)
@@ -187,7 +195,56 @@ deAnalysisServer <- function(id, clustered_seurat) {
                                        getClusterLabel(input$targetCluster2, cluster_labels()))
         de_genes(de_results)
         de_status("completed")
+        print("Pairwise analysis completed")
       })
+    })
+    
+    # General heatmap analysis
+    observeEvent(input$runGeneralHeatmap, {
+      req(clustered_seurat(), input$genesPerCluster)
+      req(active_cluster_list())
+      
+      print("Running general heatmap analysis")
+      analysis_state("general_heatmap")
+      
+      active_clusters <- as.numeric(active_cluster_list())
+      top_genes <- computeGeneralDEGenes(clustered_seurat(), 
+                                         active_clusters, 
+                                         input$genesPerCluster)
+      print(paste("Computed", length(top_genes), "total unique genes"))
+      general_heatmap_genes(top_genes)
+      print("General Heatmap analysis completed")
+      })
+    
+      # Render DE results UI
+    output$deResultsUI <- renderUI({
+      req(analysis_state())
+      req(de_genes())
+      
+      if (analysis_state() %in% c("one_vs_all", "pairwise")) {
+        tagList(
+          plotOutput(ns("volcanoPlot"), height = "400px"),
+          DT::dataTableOutput(ns("deTable")),
+          uiOutput(ns("heatmapControls")),
+          plotOutput(ns("heatmapPlot"), height = "600px")
+        )
+      }
+    })
+    
+    output$generalHeatmapUI <- renderUI({
+      req(analysis_state() == "general_heatmap")
+      req(general_heatmap_genes())
+      
+      plotOutput(ns("generalHeatmapPlot"), height = "800px")
+    })
+    
+    output$generalHeatmapPlot <- renderPlot({
+      req(general_heatmap_genes())
+      req(clustered_seurat())
+      req(cluster_labels())
+      
+      print("Rendering general heatmap...")
+      createGeneralHeatmap(clustered_seurat(), general_heatmap_genes(), cluster_labels())
     })
     
     # Single volcano plot
@@ -248,6 +305,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
         })
       })
     })
+    
     
     # Return results, status, and labels
     return(list(

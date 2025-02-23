@@ -25,7 +25,7 @@ createClusterControls <- function(ns, available_clusters, current_temp_labels, c
 createAnalysisUI <- function(ns, cluster_choices) {
   tagList(
     fluidRow(
-      column(6,
+      column(4,
              wellPanel(
                h4("One vs All Analysis"),
                selectInput(ns("targetClusterAll"), 
@@ -35,7 +35,7 @@ createAnalysisUI <- function(ns, cluster_choices) {
                actionButton(ns("runDEAll"), "Run One vs All DE")
              )
       ),
-      column(6,
+      column(4,
              wellPanel(
                h4("One vs One Analysis"),
                selectInput(ns("targetCluster1"), 
@@ -46,11 +46,27 @@ createAnalysisUI <- function(ns, cluster_choices) {
                            choices = cluster_choices),
                actionButton(ns("runDEPair"), "Run Pairwise DE")
              )
+      ),
+      column(4,
+           wellPanel(
+             h4("General Cluster Map"),
+             numericInput(ns("genesPerCluster"),
+                          "Top genes per cluster:",
+                          value=5,
+                          min=1,
+                          max=50),
+             actionButton(ns("runGeneralHeatmap"), "Generate General Heatmap")
+           )
       )
     ),
-    plotOutput(ns("volcanoPlot"), height = "400px"),
-    DT::dataTableOutput(ns("deTable")),
-    uiOutput(ns("heatmapControls")),
-    plotOutput(ns("heatmapPlot"), height = "600px")
+    
+    # Results container for One vs All and One vs One
+    div(id = ns("deResults"),
+        uiOutput(ns("deResultsUI"))
+    ),
+    # Container for general heatmap
+    div(id = ns("generalHeatmapResults"),
+        uiOutput(ns("generalHeatmapUI"))
+    )
   )
 }

@@ -23,6 +23,10 @@ buildUI <- function() {
               dataInputUI("dataInput")
           ),
           tags$hr(),
+          div(class = "sidebar-section",
+              saveLoadUI("saveLoad")
+          ),
+          tags$hr(),
           h4("Navigation"),
           div(
             id = "navigation-panel",

@@ -48,3 +48,42 @@ createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels) {
            treeheight_row = 0,
            draw = TRUE)
 }
+
+createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels) {
+  # Get expression data for selected genes
+  expr_data <- GetAssayData(seurat_obj, slot = "data")[genes, ]
+  
+  # Calculate cluster means
+  clusters <- seurat_obj$seurat_clusters
+  unique_clusters <- sort(unique(clusters))
+  
+  cluster_means <- sapply(unique_clusters, function(clust) {
+    rowMeans(expr_data[, clusters == clust, drop = FALSE])
+  })
+  
+  # Set column names using cluster labels
+  colnames(cluster_means) <- sapply(unique_clusters, function(x) cluster_labels[[as.character(x)]])
+  
+  # Scale data
+  scaled_data <- t(scale(t(cluster_means)))
+  
+  # Get gene labels
+  gene_mapping <- seurat_obj@misc$gene_mapping
+  gene_labels <- if (!is.null(gene_mapping)) {
+    gene_mapping[rownames(scaled_data)]
+  } else {
+    rownames(scaled_data)
+  }
+  gene_labels[is.na(gene_labels)] <- rownames(scaled_data)[is.na(gene_labels)]
+  
+  # Create heatmap
+  pheatmap(scaled_data,
+           labels_row = gene_labels,
+           labels_col = colnames(cluster_means),
+           main = "Top Cluster-Specific Genes",
+           angle_col = 45,
+           fontsize_row = 8,
+           cluster_cols = FALSE,
+           treeheight_row = 0,
+           draw = TRUE)
+}
