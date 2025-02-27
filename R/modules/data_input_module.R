@@ -44,7 +44,7 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
         tryCatch({
           # Get ENSEMBL to name mapping
           incProgress(0.1, detail = "Reading gene name conversion")
-          gene_conversion <- read.csv(file.path(selected_dir(), "gene_conversion_results.csv"))
+          gene_conversion <- read.csv("gene_conversion_results.csv")
           
           gene_mapping <- setNames(gene_conversion$external_gene_name, 
                                    gene_conversion$ensembl_gene_id)
@@ -122,9 +122,11 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           # If multiple objects, merge them
           if(length(seurat_objects) > 1) {
             print("Merging Seurat objects...")
+            gene_mapping_to_preserve <- seurat_objects[[1]]@misc$gene_mapping
             final_seurat <- merge(seurat_objects[[1]], 
                                   y = seurat_objects[2:length(seurat_objects)],
                                   add.cell.ids = names(seurat_objects))
+            final_seurat@misc$gene_mapping <- gene_mapping_to_preserve
           } else {
             final_seurat <- seurat_objects[[1]]
           }
