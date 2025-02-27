@@ -428,7 +428,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
             for (i in seq_along(active_clusters_num)) {
               cluster <- active_clusters_num[i]
               
-              incProgress(i / total_clusters, 
+              incProgress(i / active_clusters_num, 
                           detail = paste("Finding markers for cluster", 
                                          getClusterLabel(cluster, cluster_labels())))
               
@@ -518,11 +518,30 @@ deAnalysisServer <- function(id, clustered_seurat) {
           ))
         }
         
+        has_heatmap <- !is.null(heatmap_data()) && 
+          !is.null(heatmap_type()) && 
+          heatmap_type() == "specific"
+        
         tagList(
           h3("Differential Expression Results"),
+          div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
+              h4(style = "margin: 0;", "Volcano Plot"),
+              downloadButton(ns("downloadVolcanoPlot"), "Save Plot", 
+                             class = "btn-sm btn-success")
+          ),
           plotOutput(ns("volcanoPlot"), height = "400px"),
+          div(style = "margin-top: 20px;"),
           DT::dataTableOutput(ns("deTable")),
           uiOutput(ns("heatmapControls")),
+          
+          # Only show heatmap save button if heatmap data exists
+          div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
+              h4(style = "margin: 0;", "Expression Heatmap"),
+              if (has_heatmap) {
+                downloadButton(ns("downloadHeatmapPlot"), "Save Plot", 
+                               class = "btn-sm btn-success")
+              }
+          ),
           plotOutput(ns("heatmapPlot"), height = "600px")
         )
       }
@@ -543,8 +562,22 @@ deAnalysisServer <- function(id, clustered_seurat) {
         ))
       }
       
+      current_active <- active_cluster_list()
+      has_active_clusters <- length(current_active) > 0
+      
+      if (!has_active_clusters) {
+        return(div(
+          class = "alert alert-warning",
+          "No active clusters selected for heatmap visualization."
+        ))
+      }
+      
       tagList(
-        h3("General Cluster Heatmap"),
+        div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
+            h3(style = "margin: 0;", "General Cluster Heatmap"),
+            downloadButton(ns("downloadGeneralHeatmapPlot"), "Save Plot", 
+                           class = "btn-sm btn-success")
+        ),
         plotOutput(ns("generalHeatmapPlot"), height = "800px")
       )
     })
@@ -579,7 +612,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
     })
     
     # Single volcano plot
-    output$volcanoPlot <- renderPlot({
+    volcano_plot <- reactive({
       req(de_genes())
       results <- de_genes()
       if (nrow(results) == 0) {
@@ -591,6 +624,27 @@ deAnalysisServer <- function(id, clustered_seurat) {
       
       createVolcanoPlot(results)
     })
+    
+    output$volcanoPlot <- renderPlot({
+      volcano_plot()
+    })
+    
+    output$downloadVolcanoPlot <- downloadHandler(
+      filename = function() {
+        paste("volcano_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      },
+      content = function(file) {
+        # Create high-resolution PNG device directly
+        png(file, width = 3000, height = 2400, res = 300)
+        
+        # Generate the plot directly to the device
+        results <- de_genes()
+        print(createVolcanoPlot(results))
+        
+        # Close the device to save the file
+        dev.off()
+      }
+    )
     
     # Single results table - with only CSV export
     output$deTable <- DT::renderDataTable({
@@ -673,7 +727,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
     })
     
     # Render the specific heatmap - only when heatmap_data is available
-    output$heatmapPlot <- renderPlot({
+    heatmap_plot <- reactive({
       current_heatmap_data <- heatmap_data()
       current_heatmap_type <- heatmap_type()
       
@@ -698,6 +752,60 @@ deAnalysisServer <- function(id, clustered_seurat) {
                               current_labels,
                               active_clusters_num)
     })
+    
+    output$heatmapPlot <- renderPlot({
+      heatmap_plot()
+    })
+    
+    output$downloadHeatmapPlot <- downloadHandler(
+      filename = function() {
+        paste("heatmap_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      },
+      content = function(file) {
+        # Create high-resolution PNG device directly for pheatmap
+        png(file, width = 3000, height = 3600, res = 300)
+        
+        # Generate the heatmap directly
+        current_heatmap_data <- heatmap_data()
+        current_labels <- cluster_labels()
+        active_clusters_num <- as.numeric(active_cluster_list())
+        
+        # For all analysis types, show expression in all active clusters
+        createExpressionHeatmap(clustered_seurat(), 
+                                current_heatmap_data, 
+                                current_labels,
+                                active_clusters_num)
+        
+        # Close the device to save the file
+        dev.off()
+      }
+    )
+    
+    output$downloadGeneralHeatmapPlot <- downloadHandler(
+      filename = function() {
+        paste("general_heatmap_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      },
+      content = function(file) {
+        # Create high-resolution PNG device directly for pheatmap
+        png(file, width = 3600, height = 4200, res = 300)
+        
+        # Generate the heatmap directly
+        current_labels <- cluster_labels()
+        current_active <- active_cluster_list()
+        active_clusters_num <- as.numeric(current_active)
+        ordered_genes <- general_heatmap_genes()
+        
+        # Create the heatmap with ordered genes
+        createGeneralHeatmap(clustered_seurat(), 
+                             ordered_genes, 
+                             current_labels, 
+                             active_clusters_num,
+                             cluster_order = general_heatmap_clusters())
+        
+        # Close the device to save the file
+        dev.off()
+      }
+    )
     
     # Return results, status, and labels
     return(list(
