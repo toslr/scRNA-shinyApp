@@ -3,12 +3,15 @@
 dimensionReductionUI <- function(id) {
   ns <- NS(id)
   tagList(
-    plotOutput(ns("elbowPlot"), height = "400px"),
-    textOutput(ns("suggestedDims")),
+    div(
+      uiOutput(ns("elbowSaveButton")),
+      plotOutput(ns("elbowPlot"), height = "400px"),
+      textOutput(ns("suggestedDims")),
+    ),
     uiOutput(ns("dimControls")),
-    plotOutput(ns("umapPlot"), height = "400px"),
+    uiOutput(ns("umapSection")),
     uiOutput(ns("clusterControls")),
-    plotOutput(ns("clusterPlot"), height = "400px")
+    uiOutput(ns("clusterSection"))
   )
 }
 
@@ -48,8 +51,9 @@ dimensionReductionServer <- function(id, processed_seurat) {
       return(optimal_dims)
     })
     
-    output$elbowPlot <- renderPlot({
-      req(processed_seurat())
+    # Create elbow plot as reactive expression
+    elbow_plot <- reactive({
+      req(processed_seurat(), suggested_dims())
       ElbowPlot(processed_seurat(), 
                 ndims = ncol(Embeddings(processed_seurat(), "pca"))) +
         geom_vline(xintercept = suggested_dims(), 
@@ -57,9 +61,43 @@ dimensionReductionServer <- function(id, processed_seurat) {
                    linetype = "dashed")
     })
     
+    # Render elbow plot
+    output$elbowPlot <- renderPlot({
+      elbow_plot()
+    })
+    
+    output$elbowSaveButton <- renderUI({
+      req(processed_seurat(), suggested_dims())
+      div(style = "margin-top: 10px; text-align: right;",
+          downloadButton(ns("downloadElbowPlot"), "Save Plot", 
+                         class = "btn-sm btn-success"))
+    })
+    
+    # Download handler for elbow plot
+    output$downloadElbowPlot <- downloadHandler(
+      filename = function() {
+        paste("pca_elbow_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      },
+      content = function(file) {
+        # Create high-resolution PNG device directly
+        png(file, width = 3000, height = 1800, res = 300)
+        
+        # Generate the plot directly to the device
+        print(ElbowPlot(processed_seurat(), 
+                        ndims = ncol(Embeddings(processed_seurat(), "pca"))) +
+                geom_vline(xintercept = suggested_dims(), 
+                           color = "red", 
+                           linetype = "dashed"))
+        
+        # Close the device to save the file
+        dev.off()
+      }
+    )
+    
     output$suggestedDims <- renderText({
       req(suggested_dims())
-      paste("Suggested number of dimensions (based on elbow point):", suggested_dims())
+      paste("Suggested number of dimensions (based on elbow point):", suggested_dims(),
+            ". Please adjust the number of PC for reduction if needed.")
     })
     
     output$dimControls <- renderUI({
@@ -67,7 +105,6 @@ dimensionReductionServer <- function(id, processed_seurat) {
       tagList(
         tags$div(
           id = ns("dimension_controls"),
-          renderPrint("Please adjust the number of PC for reduction"),
           numericInput(ns("nDims"), 
                        "Number of dimensions for UMAP:", 
                        value = suggested_dims(),
@@ -94,9 +131,8 @@ dimensionReductionServer <- function(id, processed_seurat) {
       tagList(
         tags$div(
           id = ns("clustering_controls"),
-          renderPrint("Please adjust clustering resolution:"),
           numericInput(ns("resolution"), 
-                       "Clustering Resolution:", 
+                       "Please adjust clustering resolution:", 
                        0.5, 
                        min = 0, 
                        max = 2, 
@@ -117,19 +153,78 @@ dimensionReductionServer <- function(id, processed_seurat) {
       })
     })
     
-    # UMAP plot
-    output$umapPlot <- renderPlot({
+    output$umapSection <- renderUI({
+      req(seurat_with_umap())
+      req("umap" %in% names(seurat_with_umap()@reductions))
+      
+      div(
+        div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
+            h4(style = "margin: 0;", "UMAP Visualization"),
+            downloadButton(ns("downloadUMAPPlot"), "Save Plot", 
+                           class = "btn-sm btn-success")
+        ),
+        plotOutput(ns("umapPlot"), height = "400px")
+      )
+    })
+    
+    # UMAP plot as reactive expression
+    umap_plot <- reactive({
       req(seurat_with_umap())
       req("umap" %in% names(seurat_with_umap()@reductions))
       DimPlot(seurat_with_umap(), reduction = "umap")
     })
     
-    # Cluster plot
-    output$clusterPlot <- renderPlot({
+    # Render UMAP plot
+    output$umapPlot <- renderPlot({
+      umap_plot()
+    })
+    
+    # Download handler for UMAP plot
+    output$downloadUMAPPlot <- downloadHandler(
+      filename = function() {
+        paste("umap_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      },
+      content = function(file) {
+        ggsave(file, plot = umap_plot(), device = "png", width = 8, height = 6, dpi = 300)
+      }
+    )
+    
+    output$clusterSection <- renderUI({
+      req(clustered_seurat())
+      req("umap" %in% names(clustered_seurat()@reductions))
+      req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
+      
+      div(
+        div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
+            h4(style = "margin: 0;", "Cluster Visualization"),
+            downloadButton(ns("downloadClusterPlot"), "Save Plot", 
+                           class = "btn-sm btn-success")
+        ),
+        plotOutput(ns("clusterPlot"), height = "400px")
+      )
+    })
+    
+    # Cluster plot as reactive expression
+    cluster_plot <- reactive({
       req(clustered_seurat())
       req("umap" %in% names(clustered_seurat()@reductions))
       DimPlot(clustered_seurat(), reduction = "umap", label = TRUE)
     })
+    
+    # Render cluster plot
+    output$clusterPlot <- renderPlot({
+      cluster_plot()
+    })
+    
+    # Download handler for cluster plot
+    output$downloadClusterPlot <- downloadHandler(
+      filename = function() {
+        paste("cluster_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      },
+      content = function(file) {
+        ggsave(file, plot = cluster_plot(), device = "png", width = 8, height = 6, dpi = 300)
+      }
+    )
     
     return(clustered_seurat)
   })
