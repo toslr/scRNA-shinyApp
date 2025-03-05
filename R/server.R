@@ -36,14 +36,32 @@ buildServer <- function() {
     )
     
     # Initialize save/load module
-    saveLoadServer("saveLoad", 
-                   seurat_data, 
-                   metadata_module, 
-                   processed_seurat,
-                   clustered_seurat, 
-                   de_module,
-                   steps_completed,
-                   session)
+    #saveLoadServer("saveLoad", 
+    #               seurat_data, 
+    #               metadata_module, 
+    #               processed_seurat,
+    #               clustered_seurat, 
+    #               de_module,
+    #               steps_completed,
+    #               session)
+    loaded_analysis <- saveLoadServer("saveLoad", 
+                                      seurat_data, 
+                                      metadata_module, 
+                                      processed_seurat, 
+                                      clustered_seurat, 
+                                      de_module,
+                                      steps_completed,
+                                      session)
+    
+    observe({
+      data <- loaded_analysis()
+      if (is.null(data)) return()
+      
+      # Update your data modules with the loaded data
+      if (!is.null(data$seurat_data)) {
+        data_input(data$seurat_data)  # Here data_input is the reactiveVal that seurat_data depends on
+      }
+    })
     
     # Setup observers
     setupObservers(steps_completed, seurat_data, metadata_module, processed_seurat, 
