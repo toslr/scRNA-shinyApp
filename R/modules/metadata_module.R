@@ -170,7 +170,10 @@ metadataServer <- function(id) {
         print("Getting metadata from module")
         geo_metadata() 
       }),
-      selectedSamples = reactive({ selected_samples() })
+      selectedSamples = reactive({ selected_samples() }),
+      updateMetadata = function(new_metadata) {
+        geo_metadata(new_metadata)
+      }
     )
   })
 }

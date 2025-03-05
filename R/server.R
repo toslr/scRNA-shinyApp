@@ -35,6 +35,16 @@ buildServer <- function() {
       de = FALSE
     )
     
+    # Initialize save/load module
+    saveLoadServer("saveLoad", 
+                   seurat_data, 
+                   metadata_module, 
+                   processed_seurat,
+                   clustered_seurat, 
+                   de_module,
+                   steps_completed,
+                   session)
+    
     # Setup observers
     setupObservers(steps_completed, seurat_data, metadata_module, processed_seurat, 
                    clustered_seurat, de_module)
