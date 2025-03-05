@@ -154,8 +154,14 @@ createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels, active_clust
     ordered_clusters <- as.numeric(cluster_order)
     # Only use clusters that exist in our data
     ordered_clusters <- intersect(ordered_clusters, unique_clusters)
-    # Add any other clusters that weren't included in the order
-    ordered_clusters <- c(ordered_clusters, setdiff(unique_clusters, ordered_clusters))
+    # If no matching clusters (completely new set), use the default ordering
+    if (length(ordered_clusters) == 0) {
+      ordered_clusters <- unique_clusters
+    } else {
+      # Add any clusters that weren't included in the order
+      ordered_clusters <- c(ordered_clusters, setdiff(unique_clusters, ordered_clusters))
+    }
+    
     
     # Replace unique_clusters with ordered version
     unique_clusters <- ordered_clusters

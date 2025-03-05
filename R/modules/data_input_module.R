@@ -142,6 +142,9 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
       })
     })
     
+    # Trigger cleanup of downstream analyses
+    #invalidateLater(100, session)
+    
     # Return reactive value
     return(seurat_obj)
   })

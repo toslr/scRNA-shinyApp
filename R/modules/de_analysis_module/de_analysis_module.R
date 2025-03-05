@@ -44,6 +44,13 @@ deAnalysisServer <- function(id, clustered_seurat) {
     
     label_inputs <- reactiveValues()
     
+    # DE analysis reactive values
+    de_genes <- reactiveVal(NULL)
+    de_status <- reactiveVal(NULL)
+    analysis_state <- reactiveVal("none")
+    general_heatmap_genes <- reactiveVal(NULL)
+    general_heatmap_clusters <- reactiveVal(NULL)
+    
     # Get available clusters from Seurat object
     clusters <- reactive({
       req(clustered_seurat())
@@ -52,6 +59,15 @@ deAnalysisServer <- function(id, clustered_seurat) {
       }
       sort(unique(clustered_seurat()$seurat_clusters))
     })
+    
+    observeEvent(clustered_seurat(), {
+      # Reset all heatmap-related data
+      heatmap_data(NULL)
+      heatmap_type(NULL)
+      general_heatmap_genes(NULL)
+      general_heatmap_clusters(NULL)
+      analysis_state("none")
+    }, ignoreInit = TRUE)
     
     # Initialize cluster labels and active status when clusters change
     observe({
@@ -276,13 +292,6 @@ deAnalysisServer <- function(id, clustered_seurat) {
       createAnalysisUI(ns, cluster_choices)
     })
     
-    # DE analysis reactive values
-    de_genes <- reactiveVal(NULL)
-    de_status <- reactiveVal(NULL)
-    analysis_state <- reactiveVal("none")
-    general_heatmap_genes <- reactiveVal(NULL)
-    general_heatmap_clusters <- reactiveVal(NULL)
-    
     # Clear state when starting a new analysis
     clear_state <- function(new_state) {
       analysis_state(new_state)
@@ -406,6 +415,9 @@ deAnalysisServer <- function(id, clustered_seurat) {
       
       if (length(current_active_list) == 0) {
         showNotification("No active clusters selected.", type = "warning")
+        # Clear any previous heatmap data to prevent errors
+        general_heatmap_genes(NULL)
+        general_heatmap_clusters(NULL)
         return(NULL)
       }
       
