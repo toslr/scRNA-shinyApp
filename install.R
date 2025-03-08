@@ -19,7 +19,11 @@ required_packages <- c(
   "shinyjs",
   "DT",
   "devtools",
-  "GEOquery"
+  "GEOquery",
+  "pheatmap",
+  "plotly",
+  "htmlwidgets",
+  "RColorBrewer"
 )
 
 # Install each package if missing

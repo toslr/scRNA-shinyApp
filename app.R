@@ -13,6 +13,9 @@ library(shinyjs)
 library(DT)
 library(GEOquery)
 library(pheatmap)
+library(plotly)
+library(htmlwidgets)
+library(RColorBrewer)
 
 # Source de_module
 source("R/modules/de_analysis_module/de_analysis_module.R")
