@@ -120,7 +120,17 @@ createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels, active_clust
   
   # Subset to active clusters if provided
   if (!is.null(active_clusters) && length(active_clusters) > 0) {
-    active_cells <- seurat_obj$seurat_clusters %in% active_clusters
+    existing_active_clusters <- intersect(active_clusters, unique(seurat_obj$seurat_clusters))
+    
+    if (length(existing_active_clusters) == 0) {
+      return(ggplot() + 
+               annotate("text", x = 0.5, y = 0.5, 
+                        label = "None of the active clusters exist in the current dataset") + 
+               theme_void())
+    }
+    
+    # Only use active clusters that actually exist
+    active_cells <- seurat_obj$seurat_clusters %in% existing_active_clusters
     seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[active_cells])
   }
   

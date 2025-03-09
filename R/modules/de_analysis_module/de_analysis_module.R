@@ -33,6 +33,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
+    
     # Initialize reactive values
     cluster_labels <- reactiveVal(NULL)
     active_clusters <- reactiveVal(NULL)
@@ -47,9 +48,9 @@ deAnalysisServer <- function(id, clustered_seurat) {
     # DE analysis reactive values
     de_genes <- reactiveVal(NULL)
     de_status <- reactiveVal(NULL)
-    analysis_state <- reactiveVal("none")
     general_heatmap_genes <- reactiveVal(NULL)
     general_heatmap_clusters <- reactiveVal(NULL)
+    analysis_state <- reactiveVal("none")
     
     # Get available clusters from Seurat object
     clusters <- reactive({
@@ -67,6 +68,23 @@ deAnalysisServer <- function(id, clustered_seurat) {
       general_heatmap_genes(NULL)
       general_heatmap_clusters(NULL)
       analysis_state("none")
+      
+      available_clusters <- NULL
+      if (!is.null(clustered_seurat())) {
+        if ("seurat_clusters" %in% colnames(clustered_seurat()@meta.data)) {
+          available_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
+        }
+      }
+      
+      if (!is.null(available_clusters) && length(available_clusters) > 0) {
+        # Initialize new labels and active status for these clusters
+        new_labels <- initializeClusterLabels(available_clusters)
+        cluster_labels(new_labels)
+        temp_labels(new_labels)
+        
+        new_active <- initializeActiveStatus(available_clusters)
+        active_clusters(new_active)
+      }
     }, ignoreInit = TRUE)
     
     # Initialize cluster labels and active status when clusters change
@@ -440,7 +458,7 @@ deAnalysisServer <- function(id, clustered_seurat) {
             for (i in seq_along(active_clusters_num)) {
               cluster <- active_clusters_num[i]
               
-              incProgress(i / active_clusters_num, 
+              incProgress(1 / length(active_clusters_num), 
                           detail = paste("Finding markers for cluster", 
                                          getClusterLabel(cluster, cluster_labels())))
               
