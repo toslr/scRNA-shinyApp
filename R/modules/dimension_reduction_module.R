@@ -169,15 +169,6 @@ dimensionReductionServer <- function(id, processed_seurat) {
       }
     )
     
-    output$download3DUMAPPlot <- downloadHandler(
-      filename = function() {
-        paste("umap3d_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
-      },
-      content = function(file) {
-        plotly::save_image(umap3d_plot(), file, width = 800, height = 800)
-      }
-    )
-    
     # Cluster visualization section
     output$clusterSection <- renderUI({
       req(values$clustered_seurat)
@@ -231,15 +222,6 @@ dimensionReductionServer <- function(id, processed_seurat) {
       },
       content = function(file) {
         ggsave(file, plot = cluster_plot(), device = "png", width = 8, height = 8, dpi = 300)
-      }
-    )
-    
-    output$download3DClusterPlot <- downloadHandler(
-      filename = function() {
-        paste("cluster3d_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
-      },
-      content = function(file) {
-        plotly::save_image(cluster3d_plot(), file, width = 800, height = 800)
       }
     )
     
@@ -331,11 +313,7 @@ create2DUmapUI <- function(ns) {
 
 create3DUmapUI <- function(ns) {
   div(
-    div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
-        h4(style = "margin: 0;", "3D UMAP Visualization"),
-        downloadButton(ns("download3DUMAPPlot"), "Save Screenshot", 
-                       class = "btn-sm btn-success")
-    ),
+    h4(style = "margin: 0;", "3D UMAP Visualization"),
     plotlyOutput(ns("umap3DPlot"), height = "800px")
   )
 }
@@ -420,11 +398,7 @@ createCluster2DUI <- function(ns) {
 
 createCluster3DUI <- function(ns) {
   div(
-    div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
-        h4(style = "margin: 0;", "Cluster Visualization (3D)"),
-        downloadButton(ns("download3DClusterPlot"), "Save Screenshot", 
-                       class = "btn-sm btn-success")
-    ),
+    h4(style = "margin: 0;", "Cluster Visualization (3D)"),
     plotlyOutput(ns("cluster3DPlot"), height = "800px")
   )
 }
