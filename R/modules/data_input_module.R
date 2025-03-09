@@ -56,21 +56,19 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           # Only process selected GSMs
           selected_files <- character(0)
           file_to_gsm <- list()
-          
           for(gsm in selected_samples) {
             pattern <- paste0("^", gsm)
             matches <- grep(pattern, all_files, value=TRUE)
-            print(paste("Looking for files matching GSM:", gsm))
             print(paste("Found matches:", paste(matches, collapse=", ")))
             selected_files <- c(selected_files, matches)
-            file_to_gsm[matches] <- gsm
+            for(match in matches) {
+              file_to_gsm[[match]] <- gsm
+            }
           }
           
           if(length(selected_files) == 0) {
             stop("No matching files found for selected GSMs")
           }
-          
-          print(paste("Processing files:", paste(selected_files, collapse=", ")))
           
           # Initialize list for all Seurat objects
           seurat_objects <- list()
@@ -82,39 +80,31 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
             incProgress(0.9/(length(selected_files)+1), 
                         detail = paste("Reading file", count, "of", length(selected_files)))
             
-            # Read the file
             data <- Read_GEO_Delim(data_dir = selected_dir(), 
                                    file_suffix = file)
             
             if(length(data) > 0 && !is.null(data[[1]])) {
-              # Create Seurat object for this sample
               gsm <- file_to_gsm[[file]]
               print(paste("Creating Seurat object for GSM:", gsm))
-              
               seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
               print("Created Seurat object")
               seurat$sample <- gsm
               
               # Add GEO metadata if available
               meta_func <- metadata_module$getMetadata
-              
               if (!is.null(meta_func)) {
                 metadata_data <- meta_func()
-                sample_meta <- metadata_data[metadata_data$geo_accession == gsm, ]
-                
-                for(col in setdiff(colnames(sample_meta), "geo_accession")) {
-                  seurat[[col]] <- sample_meta[[col]][1]
+                if (!is.null(metadata_data)) {
+                  sample_meta <- metadata_data[metadata_data$geo_accession == gsm, ]
+                  for(col in setdiff(colnames(sample_meta), "geo_accession")) {
+                    seurat[[col]] <- sample_meta[[col]][1]
+                  }
                 }
               }
               
-              # Add percent.mt
               seurat[["percent.mt"]] <- PercentageFeatureSet(seurat,
                                                              pattern = "^ENSMUSG00000064")
-              
-              # Store gene mapping
               seurat@misc$gene_mapping <- gene_mapping
-              
-              # Store in list
               seurat_objects[[gsm]] <- seurat
             }
           }
@@ -127,8 +117,10 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
                                   y = seurat_objects[2:length(seurat_objects)],
                                   add.cell.ids = names(seurat_objects))
             final_seurat@misc$gene_mapping <- gene_mapping_to_preserve
-          } else {
+          } else if(length(seurat_objects) == 1) {
             final_seurat <- seurat_objects[[1]]
+          } else {
+            stop("No Seurat objects were created")
           }
           
           # Store the object
@@ -141,9 +133,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
         })
       })
     })
-    
-    # Trigger cleanup of downstream analyses
-    #invalidateLater(100, session)
     
     # Return reactive value
     return(seurat_obj)
