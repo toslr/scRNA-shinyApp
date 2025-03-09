@@ -15,46 +15,31 @@ dimensionReductionUI <- function(id) {
   )
 }
 
-find_elbow <- function(x, y) {
-  # Focus on the rate of change and look for where the rate of change stabilizes
-  diffs <- diff(y) / diff(x)
-  
-  window_size <- 3 # Adjustable
-  rolling_std <- sapply(1:(length(diffs) - window_size), function(i) {
-    sd(diffs[i:(i + window_size)])
-  })
-  
-  threshold <- mean(rolling_std) * 0.1  # Adjust this threshold as needed
-  elbow_idx <- which(rolling_std < threshold)[1]
-  
-  return(x[elbow_idx])
-}
-
 dimensionReductionServer <- function(id, processed_seurat) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Add a reactive value to track UMAP type (2D or 3D)
-    umap_type <- reactiveVal("2D")
+    # State management
+    values <- reactiveValues(
+      umap_type = "2D",
+      seurat_with_umap = NULL,
+      clustered_seurat = NULL
+    )
     
-    # Calculate optimal dimensions
+    # Find elbow point for optimal dimensions
     suggested_dims <- reactive({
       req(processed_seurat())
       seurat <- processed_seurat()
       
-      # Extract eigenvalues from PCA
       pca_data <- Embeddings(seurat, "pca")
       stdev <- Stdev(seurat[["pca"]])
       var_explained <- stdev^2 / sum(stdev^2)
       
-      # Find elbow point
       dims <- 1:length(var_explained)
-      optimal_dims <- find_elbow(dims, var_explained)
-      
-      return(optimal_dims)
+      find_elbow(dims, var_explained)
     })
     
-    # Create elbow plot as reactive expression
+    # Create elbow plot
     elbow_plot <- reactive({
       req(processed_seurat(), suggested_dims())
       ElbowPlot(processed_seurat(), 
@@ -82,18 +67,7 @@ dimensionReductionServer <- function(id, processed_seurat) {
         paste("pca_elbow_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
       },
       content = function(file) {
-        # Create high-resolution PNG device directly
-        png(file, width = 3000, height = 1800, res = 300)
-        
-        # Generate the plot directly to the device
-        print(ElbowPlot(processed_seurat(), 
-                        ndims = ncol(Embeddings(processed_seurat(), "pca"))) +
-                geom_vline(xintercept = suggested_dims(), 
-                           color = "red", 
-                           linetype = "dashed"))
-        
-        # Close the device to save the file
-        dev.off()
+        saveElbowPlot(file, processed_seurat(), suggested_dims())
       }
     )
     
@@ -103,198 +77,89 @@ dimensionReductionServer <- function(id, processed_seurat) {
             ". Please adjust the number of PC for reduction if needed.")
     })
     
+    # Render dimension controls
     output$dimControls <- renderUI({
       req(processed_seurat(), suggested_dims())
-      tagList(
-        tags$div(
-          id = ns("dimension_controls"),
-          numericInput(ns("nDims"), 
-                       "Number of dimensions for UMAP:", 
-                       value = suggested_dims(),
-                       min = 2,
-                       max = ncol(Embeddings(processed_seurat(), "pca"))),
-          div(style = "display: flex; gap: 10px; margin-top: 10px;",
-              actionButton(ns("run2DUMAP"), "Run 2D UMAP"),
-              actionButton(ns("run3DUMAP"), "Run Interactive 3D UMAP")
-          )
-        )
-      )
+      createDimControls(ns, suggested_dims(), ncol(Embeddings(processed_seurat(), "pca")))
     })
     
-    # Compute UMAP - combined observer for both 2D and 3D
-    seurat_with_umap <- reactiveVal(NULL)
-    
-    # 2D UMAP handler
+    # Handle 2D UMAP generation
     observeEvent(input$run2DUMAP, {
       req(processed_seurat(), input$nDims)
       withProgress(message = 'Computing 2D UMAP...', {
-        seurat <- processed_seurat()
-        # Run 2D UMAP
-        seurat <- RunUMAP(seurat, dims = 1:input$nDims, n.components = 2)
-        seurat_with_umap(seurat)
-        umap_type("2D")
+        seurat <- runUMAP(processed_seurat(), input$nDims, n_components = 2)
+        values$seurat_with_umap <- seurat
+        values$umap_type <- "2D"
       })
     })
     
-    # 3D UMAP handler
+    # Handle 3D UMAP generation
     observeEvent(input$run3DUMAP, {
       req(processed_seurat(), input$nDims)
       withProgress(message = 'Computing 3D UMAP...', {
-        seurat <- processed_seurat()
-        # Run 3D UMAP
-        seurat <- RunUMAP(seurat, dims = 1:input$nDims, n.components = 3)
-        seurat_with_umap(seurat)
-        umap_type("3D")
+        seurat <- runUMAP(processed_seurat(), input$nDims, n_components = 3)
+        values$seurat_with_umap <- seurat
+        values$umap_type <- "3D"
       })
     })
     
-    # Clustering controls
+    # Render clustering controls
     output$clusterControls <- renderUI({
-      req(seurat_with_umap())
-      tagList(
-        tags$div(
-          id = ns("clustering_controls"),
-          numericInput(ns("resolution"), 
-                       "Please adjust clustering resolution:", 
-                       0.5, 
-                       min = 0, 
-                       max = 2, 
-                       step = 0.01),
-          actionButton(ns("runClustering"), "Run Clustering")
-        )
-      )
+      req(values$seurat_with_umap)
+      createClusteringControls(ns)
     })
     
-    # Cluster the data
-    clustered_seurat <- eventReactive(input$runClustering, {
-      req(seurat_with_umap(), input$nDims, input$resolution)
+    # Run clustering
+    observeEvent(input$runClustering, {
+      req(values$seurat_with_umap, input$nDims, input$resolution)
       withProgress(message = 'Clustering...', {
-        seurat <- seurat_with_umap()
-        seurat <- FindNeighbors(seurat, dims = 1:input$nDims)
-        seurat <- FindClusters(seurat, resolution = input$resolution)
-        seurat
+        seurat <- runClustering(values$seurat_with_umap, input$nDims, input$resolution)
+        values$clustered_seurat <- seurat
       })
     })
     
+    # Render UMAP section based on type
     output$umapSection <- renderUI({
-      req(seurat_with_umap())
-      req("umap" %in% names(seurat_with_umap()@reductions))
+      req(values$seurat_with_umap)
+      req("umap" %in% names(values$seurat_with_umap@reductions))
       
-      if (umap_type() == "2D") {
-        div(
-          div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
-              h4(style = "margin: 0;", "2D UMAP Visualization"),
-              downloadButton(ns("downloadUMAPPlot"), "Save Plot", 
-                             class = "btn-sm btn-success")
-          ),
-          plotOutput(ns("umapPlot"), height = "800px")
-        )
+      if (values$umap_type == "2D") {
+        create2DUmapUI(ns)
       } else {
-        div(
-          div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
-              h4(style = "margin: 0;", "3D UMAP Visualization"),
-              downloadButton(ns("download3DUMAPPlot"), "Save Screenshot", 
-                             class = "btn-sm btn-success")
-          ),
-          plotlyOutput(ns("umap3DPlot"), height = "800px")
-        )
+        create3DUmapUI(ns)
       }
     })
     
-    # 2D UMAP plot as reactive expression
+    # 2D UMAP plot
     umap_plot <- reactive({
-      req(seurat_with_umap())
-      req("umap" %in% names(seurat_with_umap()@reductions))
-      req(umap_type() == "2D")
+      req(values$seurat_with_umap)
+      req("umap" %in% names(values$seurat_with_umap@reductions))
+      req(values$umap_type == "2D")
       
-      # Check whether to color by sample or just show a single color
-      if ("sample" %in% colnames(seurat_with_umap()@meta.data)) {
-        DimPlot(seurat_with_umap(), reduction = "umap", group.by = "sample")
-      } else {
-        DimPlot(seurat_with_umap(), reduction = "umap")
-      }
+      create2DUmapPlot(values$seurat_with_umap)
     })
     
-    # 3D UMAP plot as reactive expression
+    # 3D UMAP plot
     umap3d_plot <- reactive({
-      req(seurat_with_umap())
-      req("umap" %in% names(seurat_with_umap()@reductions))
-      req(umap_type() == "3D")
+      req(values$seurat_with_umap)
+      req("umap" %in% names(values$seurat_with_umap@reductions))
+      req(values$umap_type == "3D")
       
-      # Extract UMAP coordinates
-      umap_data <- Embeddings(seurat_with_umap()[["umap"]])
-      
-      # Extract sample or cluster information
-      if ("seurat_clusters" %in% colnames(seurat_with_umap()@meta.data)) {
-        # Color by clusters if available
-        color_var <- as.factor(seurat_with_umap()$seurat_clusters)
-        plot_title <- "3D UMAP - Colored by Clusters"
-      } else if ("sample" %in% colnames(seurat_with_umap()@meta.data)) {
-        # Color by sample ID if clusters aren't available
-        color_var <- as.factor(seurat_with_umap()$sample)
-        plot_title <- "3D UMAP - Colored by Sample"
-      } else {
-        # Default coloring if neither is available
-        color_var <- rep("Sample", ncol(seurat_with_umap()))
-        plot_title <- "3D UMAP"
-      }
-      
-      # Create custom color palette with sufficient colors
-      if (length(unique(color_var)) > 1) {
-        colors <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(length(unique(color_var)))
-      } else {
-        colors <- "blue" # Default color if only one group
-      }
-      
-      # Create plotly 3D scatter plot with improved legend
-      p <- plot_ly(x = umap_data[,1], 
-                   y = umap_data[,2], 
-                   z = umap_data[,3],
-                   type = "scatter3d",
-                   mode = "markers",
-                   color = color_var,
-                   colors = colors,
-                   marker = list(size = 3, opacity = 0.7)) %>%
-        layout(title = plot_title,
-               scene = list(xaxis = list(title = "UMAP 1"),
-                            yaxis = list(title = "UMAP 2"),
-                            zaxis = list(title = "UMAP 3")))
-      
-      # Custom legend with larger markers
-      p$x$data <- lapply(p$x$data, function(d) {
-        if (!is.null(d$marker)) {
-          # Make legend markers larger
-          d$showlegend <- TRUE
-          d$marker$sizeref <- 0.2  # Smaller value = larger legend markers
-        }
-        return(d)
-      })
-      
-      # Adjust legend position and size
-      p <- p %>% layout(
-        margin = list(r = 120),  # Make room for legend
-        legend = list(
-          font = list(size = 12),
-          itemsizing = "constant",
-          y = 0.5
-        )
-      )
-      
-      return(p)
+      create3DUmapPlot(values$seurat_with_umap)
     })
     
     # Render UMAP plots based on type
     output$umapPlot <- renderPlot({
-      req(umap_type() == "2D")
+      req(values$umap_type == "2D")
       umap_plot()
     })
     
     output$umap3DPlot <- renderPlotly({
-      req(umap_type() == "3D")
+      req(values$umap_type == "3D")
       umap3d_plot()
     })
     
-    # Download handler for 2D UMAP plot
+    # Download handlers for UMAP plots
     output$downloadUMAPPlot <- downloadHandler(
       filename = function() {
         paste("umap_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
@@ -304,118 +169,62 @@ dimensionReductionServer <- function(id, processed_seurat) {
       }
     )
     
-    # Download handler for 3D UMAP plot
     output$download3DUMAPPlot <- downloadHandler(
       filename = function() {
         paste("umap3d_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
       },
       content = function(file) {
-        # Save the plotly object as a static PNG
         plotly::save_image(umap3d_plot(), file, width = 800, height = 800)
       }
     )
     
+    # Cluster visualization section
     output$clusterSection <- renderUI({
-      req(clustered_seurat())
-      req("umap" %in% names(clustered_seurat()@reductions))
-      req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
+      req(values$clustered_seurat)
+      req("umap" %in% names(values$clustered_seurat@reductions))
+      req("seurat_clusters" %in% colnames(values$clustered_seurat@meta.data))
       
-      if (umap_type() == "2D") {
-        div(
-          div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
-              h4(style = "margin: 0;", "Cluster Visualization (2D)"),
-              downloadButton(ns("downloadClusterPlot"), "Save Plot", 
-                             class = "btn-sm btn-success")
-          ),
-          plotOutput(ns("clusterPlot"), height = "800px")
-        )
+      if (values$umap_type == "2D") {
+        createCluster2DUI(ns)
       } else {
-        div(
-          div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
-              h4(style = "margin: 0;", "Cluster Visualization (3D)"),
-              downloadButton(ns("download3DClusterPlot"), "Save Screenshot", 
-                             class = "btn-sm btn-success")
-          ),
-          plotlyOutput(ns("cluster3DPlot"), height = "800px")
-        )
+        createCluster3DUI(ns)
       }
     })
     
-    # 2D Cluster plot as reactive expression
+    # 2D Cluster plot
     cluster_plot <- reactive({
-      req(clustered_seurat())
-      req("umap" %in% names(clustered_seurat()@reductions))
-      req(umap_type() == "2D")
+      req(values$clustered_seurat)
+      req("umap" %in% names(values$clustered_seurat@reductions))
+      req(values$umap_type == "2D")
       
-      DimPlot(clustered_seurat(), reduction = "umap", label = TRUE)#, label.size = 8)
+      createCluster2DPlot(values$clustered_seurat)
     })
     
-    # 3D Cluster plot as reactive expression
+    # 3D Cluster plot
     cluster3d_plot <- reactive({
-      req(clustered_seurat())
-      req("umap" %in% names(clustered_seurat()@reductions))
-      req(umap_type() == "3D")
-      req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
+      req(values$clustered_seurat)
+      req("umap" %in% names(values$clustered_seurat@reductions))
+      req(values$umap_type == "3D")
+      req("seurat_clusters" %in% colnames(values$clustered_seurat@meta.data))
       
-      # Extract UMAP coordinates
-      umap_data <- Embeddings(clustered_seurat()[["umap"]])
+      umap_dims <- dim(values$clustered_seurat@reductions$umap@cell.embeddings)[2]
+      req(umap_dims >= 3, "3D UMAP not available")
       
-      # Extract cluster information
-      clusters <- clustered_seurat()$seurat_clusters
-      clusters_factor <- as.factor(clusters)
-      
-      # Create custom color palette
-      colors <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(length(levels(clusters_factor)))
-      
-      # Create plotly 3D scatter plot with clusters
-      p <- plot_ly(x = umap_data[,1], 
-                   y = umap_data[,2], 
-                   z = umap_data[,3],
-                   type = "scatter3d",
-                   mode = "markers",
-                   color = clusters_factor,
-                   colors = colors,
-                   marker = list(size = 3, opacity = 0.7)) %>%
-        layout(title = "3D UMAP - Clusters",
-               scene = list(xaxis = list(title = "UMAP 1"),
-                            yaxis = list(title = "UMAP 2"),
-                            zaxis = list(title = "UMAP 3")))
-      
-      # Custom legend with larger markers
-      p$x$data <- lapply(p$x$data, function(d) {
-        if (!is.null(d$marker)) {
-          # Make legend markers larger
-          d$showlegend <- TRUE
-          d$marker$sizeref <- 0.2  # Smaller value = larger legend markers
-        }
-        return(d)
-      })
-      
-      # Adjust legend position and size
-      p <- p %>% layout(
-        margin = list(r = 120),  # Make room for legend
-        legend = list(
-          font = list(size = 12),
-          itemsizing = "constant",
-          y = 0.5
-        )
-      )
-      
-      return(p)
+      createCluster3DPlot(values$clustered_seurat)
     })
     
-    # Render cluster plots based on type
+    # Render cluster plots
     output$clusterPlot <- renderPlot({
-      req(umap_type() == "2D")
+      req(values$umap_type == "2D")
       cluster_plot()
     })
     
     output$cluster3DPlot <- renderPlotly({
-      req(umap_type() == "3D")
+      req(values$umap_type == "3D")
       cluster3d_plot()
     })
     
-    # Download handler for 2D cluster plot
+    # Download handlers for cluster plots
     output$downloadClusterPlot <- downloadHandler(
       filename = function() {
         paste("cluster_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
@@ -425,17 +234,252 @@ dimensionReductionServer <- function(id, processed_seurat) {
       }
     )
     
-    # Download handler for 3D cluster plot
     output$download3DClusterPlot <- downloadHandler(
       filename = function() {
         paste("cluster3d_plot_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
       },
       content = function(file) {
-        # Save the plotly object as a static PNG
         plotly::save_image(cluster3d_plot(), file, width = 800, height = 800)
       }
     )
     
-    return(clustered_seurat)
+    return(reactive({ values$clustered_seurat }))
   })
+}
+
+# Helper Functions
+
+find_elbow <- function(x, y) {
+  # Focus on the rate of change and look for where the rate of change stabilizes
+  diffs <- diff(y) / diff(x)
+  
+  window_size <- 3 # Adjustable
+  rolling_std <- sapply(1:(length(diffs) - window_size), function(i) {
+    sd(diffs[i:(i + window_size)])
+  })
+  
+  threshold <- mean(rolling_std) * 0.1
+  elbow_idx <- which(rolling_std < threshold)[1]
+  
+  return(x[elbow_idx])
+}
+
+saveElbowPlot <- function(file, seurat_obj, suggested_dims) {
+  png(file, width = 3000, height = 1800, res = 300)
+  
+  print(ElbowPlot(seurat_obj, 
+                  ndims = ncol(Embeddings(seurat_obj, "pca"))) +
+          geom_vline(xintercept = suggested_dims, 
+                     color = "red", 
+                     linetype = "dashed"))
+  
+  dev.off()
+}
+
+createDimControls <- function(ns, suggested_dims, max_dims) {
+  tagList(
+    tags$div(
+      id = ns("dimension_controls"),
+      numericInput(ns("nDims"), 
+                   "Number of dimensions for UMAP:", 
+                   value = suggested_dims,
+                   min = 2,
+                   max = max_dims),
+      div(style = "display: flex; gap: 10px; margin-top: 10px;",
+          actionButton(ns("run2DUMAP"), "Run 2D UMAP"),
+          actionButton(ns("run3DUMAP"), "Run Interactive 3D UMAP")
+      )
+    )
+  )
+}
+
+runUMAP <- function(seurat_obj, n_dims, n_components = 2) {
+  RunUMAP(seurat_obj, dims = 1:n_dims, n.components = n_components)
+}
+
+createClusteringControls <- function(ns) {
+  tagList(
+    tags$div(
+      id = ns("clustering_controls"),
+      numericInput(ns("resolution"), 
+                   "Please adjust clustering resolution:", 
+                   0.5, 
+                   min = 0, 
+                   max = 2, 
+                   step = 0.01),
+      actionButton(ns("runClustering"), "Run Clustering")
+    )
+  )
+}
+
+runClustering <- function(seurat_obj, n_dims, resolution) {
+  seurat <- FindNeighbors(seurat_obj, dims = 1:n_dims)
+  seurat <- FindClusters(seurat, resolution = resolution)
+  return(seurat)
+}
+
+create2DUmapUI <- function(ns) {
+  div(
+    div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
+        h4(style = "margin: 0;", "2D UMAP Visualization"),
+        downloadButton(ns("downloadUMAPPlot"), "Save Plot", 
+                       class = "btn-sm btn-success")
+    ),
+    plotOutput(ns("umapPlot"), height = "800px")
+  )
+}
+
+create3DUmapUI <- function(ns) {
+  div(
+    div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
+        h4(style = "margin: 0;", "3D UMAP Visualization"),
+        downloadButton(ns("download3DUMAPPlot"), "Save Screenshot", 
+                       class = "btn-sm btn-success")
+    ),
+    plotlyOutput(ns("umap3DPlot"), height = "800px")
+  )
+}
+
+create2DUmapPlot <- function(seurat_obj) {
+  if ("sample" %in% colnames(seurat_obj@meta.data)) {
+    DimPlot(seurat_obj, reduction = "umap", group.by = "sample")
+  } else {
+    DimPlot(seurat_obj, reduction = "umap")
+  }
+}
+
+create3DUmapPlot <- function(seurat_obj) {
+  # Extract UMAP coordinates
+  umap_data <- Embeddings(seurat_obj[["umap"]])
+  
+  # Extract sample or cluster information
+  if ("seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
+    color_var <- as.factor(seurat_obj$seurat_clusters)
+    plot_title <- "3D UMAP - Colored by Clusters"
+  } else if ("sample" %in% colnames(seurat_obj@meta.data)) {
+    color_var <- as.factor(seurat_obj$sample)
+    plot_title <- "3D UMAP - Colored by Sample"
+  } else {
+    color_var <- rep("Sample", ncol(seurat_obj))
+    plot_title <- "3D UMAP"
+  }
+  
+  # Create custom color palette
+  if (length(unique(color_var)) > 1) {
+    colors <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(length(unique(color_var)))
+  } else {
+    colors <- "blue"
+  }
+  
+  # Create 3D plot
+  p <- plot_ly(x = umap_data[,1], 
+               y = umap_data[,2], 
+               z = umap_data[,3],
+               type = "scatter3d",
+               mode = "markers",
+               color = color_var,
+               colors = colors,
+               marker = list(size = 3, opacity = 0.7)) %>%
+    layout(title = plot_title,
+           scene = list(xaxis = list(title = "UMAP 1"),
+                        yaxis = list(title = "UMAP 2"),
+                        zaxis = list(title = "UMAP 3")))
+  
+  # Custom legend with larger markers
+  p$x$data <- lapply(p$x$data, function(d) {
+    if (!is.null(d$marker)) {
+      d$showlegend <- TRUE
+      d$marker$sizeref <- 0.2
+    }
+    return(d)
+  })
+  
+  # Adjust legend position and size
+  p <- p %>% layout(
+    margin = list(r = 120),
+    legend = list(
+      font = list(size = 12),
+      itemsizing = "constant",
+      y = 0.5
+    )
+  )
+  
+  return(p)
+}
+
+createCluster2DUI <- function(ns) {
+  div(
+    div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
+        h4(style = "margin: 0;", "Cluster Visualization (2D)"),
+        downloadButton(ns("downloadClusterPlot"), "Save Plot", 
+                       class = "btn-sm btn-success")
+    ),
+    plotOutput(ns("clusterPlot"), height = "800px")
+  )
+}
+
+createCluster3DUI <- function(ns) {
+  div(
+    div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
+        h4(style = "margin: 0;", "Cluster Visualization (3D)"),
+        downloadButton(ns("download3DClusterPlot"), "Save Screenshot", 
+                       class = "btn-sm btn-success")
+    ),
+    plotlyOutput(ns("cluster3DPlot"), height = "800px")
+  )
+}
+
+createCluster2DPlot <- function(seurat_obj) {
+  DimPlot(seurat_obj, reduction = "umap", label = TRUE)
+}
+
+createCluster3DPlot <- function(seurat_obj) {
+  # Extract UMAP coordinates
+  umap_data <- Embeddings(seurat_obj[["umap"]])
+  if (ncol(umap_data) < 3) {
+    return(plotly_empty() %>% 
+             layout(title = "Error: 3D UMAP data not available"))
+  }
+  
+  # Extract cluster information
+  clusters <- seurat_obj$seurat_clusters
+  clusters_factor <- as.factor(clusters)
+  
+  # Create custom color palette
+  colors <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(length(levels(clusters_factor)))
+  
+  # Create 3D plot
+  p <- plot_ly(x = umap_data[,1], 
+               y = umap_data[,2], 
+               z = umap_data[,3],
+               type = "scatter3d",
+               mode = "markers",
+               color = clusters_factor,
+               colors = colors,
+               marker = list(size = 3, opacity = 0.7)) %>%
+    layout(title = "3D UMAP - Clusters",
+           scene = list(xaxis = list(title = "UMAP 1"),
+                        yaxis = list(title = "UMAP 2"),
+                        zaxis = list(title = "UMAP 3")))
+  
+  # Custom legend with larger markers
+  p$x$data <- lapply(p$x$data, function(d) {
+    if (!is.null(d$marker)) {
+      d$showlegend <- TRUE
+      d$marker$sizeref <- 0.2
+    }
+    return(d)
+  })
+  
+  # Adjust legend position and size
+  p <- p %>% layout(
+    margin = list(r = 120),
+    legend = list(
+      font = list(size = 12),
+      itemsizing = "constant",
+      y = 0.5
+    )
+  )
+  
+  return(p)
 }
