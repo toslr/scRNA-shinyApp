@@ -11,7 +11,8 @@ dimensionReductionUI <- function(id) {
     uiOutput(ns("dimControls")),
     uiOutput(ns("umapSection")),
     uiOutput(ns("clusterControls")),
-    uiOutput(ns("clusterSection"))
+    uiOutput(ns("clusterSection")),
+    uiOutput(ns("geneUmapSection"))
   )
 }
 
@@ -225,235 +226,203 @@ dimensionReductionServer <- function(id, processed_seurat) {
       }
     )
     
+    # Gene expression UMAP section
+    output$geneUmapSection <- renderUI({
+      req(values$clustered_seurat)
+      req("umap" %in% names(values$clustered_seurat@reductions))
+      
+      createGeneUmapUI(ns)
+    })
+    
+    # Store gene search results
+    gene_search_results <- reactiveVal(NULL)
+    
+    # Handle gene search
+    observeEvent(input$searchGene, {
+      req(values$clustered_seurat, input$geneQuery)
+      
+      # Get gene symbols from the Seurat object
+      gene_mapping <- values$clustered_seurat@misc$gene_mapping
+      
+      # Make sure input is not empty
+      if (trimws(input$geneQuery) == "") {
+        gene_search_results(NULL)
+        return()
+      }
+      
+      # Convert query to lowercase for case-insensitive search
+      query <- tolower(trimws(input$geneQuery))
+      
+      # Initialize empty results
+      results <- NULL
+      
+      if (!is.null(gene_mapping)) {
+        # Create a data frame of gene mappings for easier searching
+        gene_df <- data.frame(
+          ensembl_id = names(gene_mapping),
+          gene_symbol = as.character(gene_mapping),
+          stringsAsFactors = FALSE
+        )
+        
+        # Remove any rows with NA values
+        gene_df <- gene_df[!is.na(gene_df$ensembl_id) & !is.na(gene_df$gene_symbol), ]
+        
+        # Search by gene symbol (prioritize this)
+        symbol_matches <- grep(query, tolower(gene_df$gene_symbol), value = FALSE)
+        
+        # Search by Ensembl ID if needed
+        ensembl_matches <- grep(query, tolower(gene_df$ensembl_id), value = FALSE)
+        
+        # Combine matches (prioritize gene symbol matches)
+        all_matches <- unique(c(symbol_matches, ensembl_matches))
+        
+        if (length(all_matches) > 0) {
+          # Create results data frame
+          results <- gene_df[all_matches, , drop = FALSE]
+          
+          # Only keep genes that are in the dataset
+          results <- results[results$ensembl_id %in% rownames(values$clustered_seurat), , drop = FALSE]
+          
+          # Sort by gene symbol
+          if (nrow(results) > 0) {
+            results <- results[order(results$gene_symbol), , drop = FALSE]
+          } else {
+            results <- NULL
+          }
+        }
+      } else {
+        # If no gene mapping is available, search directly in rownames
+        matches <- grep(query, tolower(rownames(values$clustered_seurat)), value = TRUE)
+        
+        if (length(matches) > 0) {
+          results <- data.frame(
+            ensembl_id = matches,
+            gene_symbol = matches,
+            stringsAsFactors = FALSE
+          )
+          results <- results[order(results$gene_symbol), , drop = FALSE]
+        }
+      }
+      
+      # Update reactive value with results
+      gene_search_results(results)
+      
+      # Log search results
+      if (!is.null(results) && nrow(results) > 0) {
+        print(paste("Found", nrow(results), "genes matching", input$geneQuery))
+      } else {
+        print(paste("No genes found matching", input$geneQuery))
+      }
+    })
+    
+    # Dynamic UI for gene selection
+    output$geneSelectionUI <- renderUI({
+      results <- gene_search_results()
+      
+      if (is.null(results) || nrow(results) == 0) {
+        div(
+          style = "margin-top: 32px;",
+          p("No matching genes found. Try a different search term.")
+        )
+      } else {
+        # Create selection with gene symbols as labels and Ensembl IDs as values
+        # Prioritize showing gene symbols
+        choices <- setNames(
+          results$ensembl_id, 
+          ifelse(
+            !is.na(results$gene_symbol) & results$gene_symbol != results$ensembl_id,
+            paste(results$gene_symbol, " (", results$ensembl_id, ")", sep = ""),
+            results$ensembl_id
+          )
+        )
+        
+        selectInput(ns("selectedGene"), 
+                    paste("Select from", nrow(results), "matching genes:"),
+                    choices = choices,
+                    selected = choices[1])
+      }
+    })
+    
+    output$selectedGeneLabel <- renderText({
+      req(input$selectedGene)
+      
+      # Get gene symbol if we have gene mapping
+      gene_id <- input$selectedGene
+      
+      if (!is.null(values$clustered_seurat@misc$gene_mapping) && 
+          gene_id %in% names(values$clustered_seurat@misc$gene_mapping) &&
+          !is.na(values$clustered_seurat@misc$gene_mapping[gene_id])) {
+        gene_symbol <- values$clustered_seurat@misc$gene_mapping[gene_id]
+        paste("Gene Expression UMAP:", gene_symbol, "(", gene_id, ")")
+      } else {
+        paste("Gene Expression UMAP:", gene_id)
+      }
+    })
+    
+    # Gene UMAP visualization section
+    output$geneUmapVisSection <- renderUI({
+      req(values$clustered_seurat, input$selectedGene)
+      req("umap" %in% names(values$clustered_seurat@reductions))
+      
+      if (values$umap_type == "2D") {
+        create2DGeneUmapUI(ns)
+      } else {
+        create3DGeneUmapUI(ns)
+      }
+    })
+    
+    # 2D Gene UMAP plot
+    gene_umap_2d_plot <- reactive({
+      req(values$clustered_seurat, input$selectedGene)
+      req("umap" %in% names(values$clustered_seurat@reductions))
+      req(values$umap_type == "2D")
+      
+      createGeneUmapPlot(values$clustered_seurat, input$selectedGene)
+    })
+    
+    # 3D Gene UMAP plot
+    gene_umap_3d_plot <- reactive({
+      req(values$clustered_seurat, input$selectedGene)
+      req("umap" %in% names(values$clustered_seurat@reductions))
+      req(values$umap_type == "3D")
+      
+      createGeneUmap3DPlot(values$clustered_seurat, input$selectedGene)
+    })
+    
+    # Render 2D gene UMAP plot
+    output$geneUmapPlot2D <- renderPlot({
+      req(input$selectedGene, values$umap_type == "2D")
+      gene_umap_2d_plot()
+    })
+    
+    # Render 3D gene UMAP plot
+    output$geneUmapPlot3D <- renderPlotly({
+      req(input$selectedGene, values$umap_type == "3D")
+      gene_umap_3d_plot()
+    })
+    
+    # Download handlers for gene UMAP plots
+    output$downloadGeneUmap2DPlot <- downloadHandler(
+      filename = function() {
+        gene_name <- input$selectedGene
+        paste("gene_umap_2d_", gene_name, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      },
+      content = function(file) {
+        ggsave(file, plot = gene_umap_2d_plot(), device = "png", width = 8, height = 8, dpi = 300)
+      }
+    )
+    
+    output$downloadGeneUmap3DPlot <- downloadHandler(
+      filename = function() {
+        gene_name <- input$selectedGene
+        paste("gene_umap_3d_", gene_name, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".html", sep = "")
+      },
+      content = function(file) {
+        saveWidget(gene_umap_3d_plot(), file)
+      }
+    )
+    
+    # Return the clustered Seurat object
     return(reactive({ values$clustered_seurat }))
   })
-}
-
-# Helper Functions
-
-find_elbow <- function(x, y) {
-  # Focus on the rate of change and look for where the rate of change stabilizes
-  diffs <- diff(y) / diff(x)
-  
-  window_size <- 3 # Adjustable
-  rolling_std <- sapply(1:(length(diffs) - window_size), function(i) {
-    sd(diffs[i:(i + window_size)])
-  })
-  
-  threshold <- mean(rolling_std) * 0.1
-  elbow_idx <- which(rolling_std < threshold)[1]
-  
-  return(x[elbow_idx])
-}
-
-saveElbowPlot <- function(file, seurat_obj, suggested_dims) {
-  png(file, width = 3000, height = 1800, res = 300)
-  
-  print(ElbowPlot(seurat_obj, 
-                  ndims = ncol(Embeddings(seurat_obj, "pca"))) +
-          geom_vline(xintercept = suggested_dims, 
-                     color = "red", 
-                     linetype = "dashed"))
-  
-  dev.off()
-}
-
-createDimControls <- function(ns, suggested_dims, max_dims) {
-  tagList(
-    tags$div(
-      id = ns("dimension_controls"),
-      numericInput(ns("nDims"), 
-                   "Number of dimensions for UMAP:", 
-                   value = suggested_dims,
-                   min = 2,
-                   max = max_dims),
-      div(style = "display: flex; gap: 10px; margin-top: 10px;",
-          actionButton(ns("run2DUMAP"), "Run 2D UMAP"),
-          actionButton(ns("run3DUMAP"), "Run Interactive 3D UMAP")
-      )
-    )
-  )
-}
-
-runUMAP <- function(seurat_obj, n_dims, n_components = 2) {
-  RunUMAP(seurat_obj, dims = 1:n_dims, n.components = n_components)
-}
-
-createClusteringControls <- function(ns) {
-  tagList(
-    tags$div(
-      id = ns("clustering_controls"),
-      numericInput(ns("resolution"), 
-                   "Please adjust clustering resolution:", 
-                   0.5, 
-                   min = 0, 
-                   max = 2, 
-                   step = 0.01),
-      actionButton(ns("runClustering"), "Run Clustering")
-    )
-  )
-}
-
-runClustering <- function(seurat_obj, n_dims, resolution) {
-  seurat <- FindNeighbors(seurat_obj, dims = 1:n_dims)
-  seurat <- FindClusters(seurat, resolution = resolution)
-  return(seurat)
-}
-
-create2DUmapUI <- function(ns) {
-  div(
-    div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
-        h4(style = "margin: 0;", "2D UMAP Visualization"),
-        downloadButton(ns("downloadUMAPPlot"), "Save Plot", 
-                       class = "btn-sm btn-success")
-    ),
-    plotOutput(ns("umapPlot"), height = "800px")
-  )
-}
-
-create3DUmapUI <- function(ns) {
-  div(
-    h4(style = "margin: 0;", "3D UMAP Visualization"),
-    plotlyOutput(ns("umap3DPlot"), height = "800px")
-  )
-}
-
-create2DUmapPlot <- function(seurat_obj) {
-  if ("sample" %in% colnames(seurat_obj@meta.data)) {
-    DimPlot(seurat_obj, reduction = "umap", group.by = "sample")
-  } else {
-    DimPlot(seurat_obj, reduction = "umap")
-  }
-}
-
-create3DUmapPlot <- function(seurat_obj) {
-  # Extract UMAP coordinates
-  umap_data <- Embeddings(seurat_obj[["umap"]])
-  
-  # Extract sample or cluster information
-  if ("seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
-    color_var <- as.factor(seurat_obj$seurat_clusters)
-    plot_title <- "3D UMAP - Colored by Clusters"
-  } else if ("sample" %in% colnames(seurat_obj@meta.data)) {
-    color_var <- as.factor(seurat_obj$sample)
-    plot_title <- "3D UMAP - Colored by Sample"
-  } else {
-    color_var <- rep("Sample", ncol(seurat_obj))
-    plot_title <- "3D UMAP"
-  }
-  
-  # Create custom color palette
-  if (length(unique(color_var)) > 1) {
-    colors <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(length(unique(color_var)))
-  } else {
-    colors <- "blue"
-  }
-  
-  # Create 3D plot
-  p <- plot_ly(x = umap_data[,1], 
-               y = umap_data[,2], 
-               z = umap_data[,3],
-               type = "scatter3d",
-               mode = "markers",
-               color = color_var,
-               colors = colors,
-               marker = list(size = 3, opacity = 0.7)) %>%
-    layout(title = plot_title,
-           scene = list(xaxis = list(title = "UMAP 1"),
-                        yaxis = list(title = "UMAP 2"),
-                        zaxis = list(title = "UMAP 3")))
-  
-  # Custom legend with larger markers
-  p$x$data <- lapply(p$x$data, function(d) {
-    if (!is.null(d$marker)) {
-      d$showlegend <- TRUE
-      d$marker$sizeref <- 0.2
-    }
-    return(d)
-  })
-  
-  # Adjust legend position and size
-  p <- p %>% layout(
-    margin = list(r = 120),
-    legend = list(
-      font = list(size = 12),
-      itemsizing = "constant",
-      y = 0.5
-    )
-  )
-  
-  return(p)
-}
-
-createCluster2DUI <- function(ns) {
-  div(
-    div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
-        h4(style = "margin: 0;", "Cluster Visualization (2D)"),
-        downloadButton(ns("downloadClusterPlot"), "Save Plot", 
-                       class = "btn-sm btn-success")
-    ),
-    plotOutput(ns("clusterPlot"), height = "800px")
-  )
-}
-
-createCluster3DUI <- function(ns) {
-  div(
-    h4(style = "margin: 0;", "Cluster Visualization (3D)"),
-    plotlyOutput(ns("cluster3DPlot"), height = "800px")
-  )
-}
-
-createCluster2DPlot <- function(seurat_obj) {
-  DimPlot(seurat_obj, reduction = "umap", label = TRUE)
-}
-
-createCluster3DPlot <- function(seurat_obj) {
-  # Extract UMAP coordinates
-  umap_data <- Embeddings(seurat_obj[["umap"]])
-  if (ncol(umap_data) < 3) {
-    return(plotly_empty() %>% 
-             layout(title = "Error: 3D UMAP data not available"))
-  }
-  
-  # Extract cluster information
-  clusters <- seurat_obj$seurat_clusters
-  clusters_factor <- as.factor(clusters)
-  
-  # Create custom color palette
-  colors <- colorRampPalette(RColorBrewer::brewer.pal(8, "Set2"))(length(levels(clusters_factor)))
-  
-  # Create 3D plot
-  p <- plot_ly(x = umap_data[,1], 
-               y = umap_data[,2], 
-               z = umap_data[,3],
-               type = "scatter3d",
-               mode = "markers",
-               color = clusters_factor,
-               colors = colors,
-               marker = list(size = 3, opacity = 0.7)) %>%
-    layout(title = "3D UMAP - Clusters",
-           scene = list(xaxis = list(title = "UMAP 1"),
-                        yaxis = list(title = "UMAP 2"),
-                        zaxis = list(title = "UMAP 3")))
-  
-  # Custom legend with larger markers
-  p$x$data <- lapply(p$x$data, function(d) {
-    if (!is.null(d$marker)) {
-      d$showlegend <- TRUE
-      d$marker$sizeref <- 0.2
-    }
-    return(d)
-  })
-  
-  # Adjust legend position and size
-  p <- p %>% layout(
-    margin = list(r = 120),
-    legend = list(
-      font = list(size = 12),
-      itemsizing = "constant",
-      y = 0.5
-    )
-  )
-  
-  return(p)
 }

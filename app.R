@@ -21,6 +21,10 @@ library(RColorBrewer)
 source("R/modules/data_input_module.R")
 source("R/modules/data_input_utils/geo_data_utils.R")
 
+# Source dimred
+source("R/modules/dimension_reduction_module.R")
+source("R/modules/dimension_reduction_utils/dimred_utils.R")
+
 # Source de_module
 source("R/modules/de_analysis_module/de_analysis_module.R")
 source("R/modules/de_analysis_module/cluster_utils.R")
