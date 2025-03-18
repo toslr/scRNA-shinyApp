@@ -43,7 +43,8 @@ setupSections <- function(input, output, seurat_data, metadata_handler, processe
   output$deSection <- renderUI({
     req(clustered_seurat())
     req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
-    req("umap" %in% names(clustered_seurat()@reductions))
+    valid_umap_exists <- any(c("umap2d", "umap3d", "umap") %in% names(clustered_seurat()@reductions))
+    req(valid_umap_exists)
     div(id = "de-section",
         h3(class = "section-header", "Differential Expression"),
         div(class = "section-content",

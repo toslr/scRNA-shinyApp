@@ -22,7 +22,7 @@ setupObservers <- function(steps_completed, seurat_data, metadata_module, proces
   # Track dimension reduction and clustering completion
   observe({
     if (!is.null(clustered_seurat())) {
-      steps_completed$dimred <- "umap" %in% names(clustered_seurat()@reductions)
+      steps_completed$dimred <- any(c("umap2d", "umap3d", "umap") %in% names(clustered_seurat()@reductions))
       steps_completed$clustering <- "seurat_clusters" %in% colnames(clustered_seurat()@meta.data)
     }
   })
