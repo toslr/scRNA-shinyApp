@@ -15,22 +15,58 @@ buildUI <- function() {
     div(
       # Sidebar
       div(id = "sidebar",
-          div(class = "sidebar-section",
-              metadataUI("metadata")
+          div(class = "sidebar-section collapsible-section",
+              div(class = "section-header",
+                  h4("Metadata", style = "display: inline;"),
+                  tags$button(
+                    class = "btn btn-link btn-collapse",
+                    tags$i(class = "fa fa-chevron-down")
+                  )
+              ),
+              div(class = "section-content",
+                  metadataUI("metadata")
+              )
           ),
-          tags$hr(),
-          div(class = "sidebar-section",
-              dataInputUI("dataInput")
+          
+          div(class = "sidebar-section collapsible-section",
+              div(class = "section-header",
+                  h4("Data Input", style = "display: inline;"),
+                  tags$button(
+                    class = "btn btn-link btn-collapse",
+                    tags$i(class = "fa fa-chevron-down")
+                  )
+              ),
+              div(class = "section-content",
+                  dataInputUI("dataInput")
+              )
           ),
-          tags$hr(),
-          div(class = "sidebar-section",
-              saveLoadUI("saveLoad")
+          
+          div(class = "sidebar-section collapsible-section",
+              div(class = "section-header",
+                  h4("Save/Load Analysis", style = "display: inline;"),
+                  tags$button(
+                    class = "btn btn-link btn-collapse",
+                    tags$i(class = "fa fa-chevron-down")
+                  )
+              ),
+              div(class = "section-content",
+                  saveLoadUI("saveLoad")
+              )
           ),
-          tags$hr(),
-          h4("Navigation"),
-          div(
-            id = "navigation-panel",
-            uiOutput("taskList")
+          
+          div(class = "sidebar-section collapsible-section",
+              div(class = "section-header",
+                  h4("Navigation", style = "display: inline;"),
+                  tags$button(
+                    class = "btn btn-link btn-collapse",
+                    tags$i(class = "fa fa-chevron-down")
+                  )
+              ),
+              div(class = "section-content",
+                  div(id = "navigation-panel",
+                      uiOutput("taskList")
+                  )
+              )
           ),
           div(
             id= "copyright",

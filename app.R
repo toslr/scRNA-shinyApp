@@ -16,6 +16,7 @@ library(pheatmap)
 library(plotly)
 library(htmlwidgets)
 library(RColorBrewer)
+library(fontawesome)
 
 # Source data input
 source("R/modules/data_input_module.R")

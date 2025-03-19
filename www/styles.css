@@ -47,6 +47,51 @@
   box-sizing: border-box;
 }
 
+.collapsible-section {
+  margin-bottom: 5px;
+}
+
+.collapsible-section .section-header {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background-color: #8C1515;
+  color: white;
+  border-radius: 4px;
+}
+
+.collapsible-section .section-header:hover {
+  background-color: #e9ecef;
+  color: black;
+}
+
+.collapsible-section .section-content {
+  padding: 5px 3px;
+  margin-top: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+}
+
+.collapsible-section.collapsed .section-content {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.btn-collapse {
+  padding: 0;
+  margin: 0;
+  color: #6c757d;
+  transition: transform 0.3s;
+}
+
+.collapsible-section.collapsed .btn-collapse .fa-chevron-down {
+  transform: rotate(-90deg);
+}
+
 .section-header {
   padding-top: 30px;
   margin-bottom: 20px;

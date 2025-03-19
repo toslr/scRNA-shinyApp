@@ -5,7 +5,6 @@ dataInputUI <- function(id) {
   tagList(
     fluidRow(
       column(12,
-             h2(),
              strong("Select data directory"),
              shinyDirButton(ns("dir"), "Select Data Directory", "Choose directory"),
              verbatimTextOutput(ns("dirpath")),
