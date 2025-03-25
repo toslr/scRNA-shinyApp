@@ -30,7 +30,19 @@ initializeActiveStatus <- function(clusters, current_active = NULL) {
 }
 
 getClusterLabel <- function(cluster, labels) {
-  if (is.null(labels)) {
+  # Safety check to handle reactive values
+  if (is.function(labels)) {
+    tryCatch({
+      labels <- labels()
+      print("Evaluated reactive labels in getClusterLabel")
+    }, error = function(e) {
+      print(paste("Error evaluating labels in getClusterLabel:", e$message))
+      return(paste("Cluster", cluster))
+    })
+  }
+  
+  # Check if labels is NULL or not a list/vector
+  if (is.null(labels) || !is.vector(labels)) {
     return(paste("Cluster", cluster))
   }
   

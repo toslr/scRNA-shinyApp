@@ -12,13 +12,34 @@ createVolcanoPlot <- function(results) {
     theme(legend.position = "bottom")
 }
 
-createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels, active_clusters = NULL) {
+createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels = NULL, active_clusters = NULL) {
   # Safety check for empty gene list
   if (length(top_genes) == 0) {
     # Create an empty plot with a message
     return(ggplot() + 
              annotate("text", x = 0.5, y = 0.5, label = "No genes to display") + 
              theme_void())
+  }
+  
+  # Ensure cluster_labels is not a function (reactive value)
+  if (is.function(cluster_labels)) {
+    print("Warning: cluster_labels is a function, trying to evaluate it")
+    tryCatch({
+      cluster_labels <- cluster_labels()
+    }, error = function(e) {
+      print(paste("Error evaluating cluster_labels:", e$message))
+      cluster_labels <- NULL
+    })
+  }
+  
+  # Create default cluster labels if not provided
+  if (is.null(cluster_labels)) {
+    print("Creating default cluster labels")
+    unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
+    cluster_labels <- setNames(
+      paste("Cluster", unique_clusters),
+      as.character(unique_clusters)
+    )
   }
   
   # Subset to active clusters if provided
@@ -62,8 +83,9 @@ createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels, activ
   
   # Set column names using cluster labels
   col_names <- sapply(unique_clusters, function(x) {
-    if (as.character(x) %in% names(cluster_labels)) {
-      cluster_labels[[as.character(x)]]
+    cluster_key <- as.character(x)
+    if (cluster_key %in% names(cluster_labels)) {
+      cluster_labels[[cluster_key]]
     } else {
       paste("Cluster", x)
     }
@@ -109,13 +131,34 @@ createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels, activ
   })
 }
 
-createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels, active_clusters = NULL, cluster_order = NULL) {
+createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels = NULL, active_clusters = NULL, cluster_order = NULL) {
   # Safety check for empty gene list
   if (length(genes) == 0) {
     # Create an empty plot with a message
     return(ggplot() + 
              annotate("text", x = 0.5, y = 0.5, label = "No genes to display") + 
              theme_void())
+  }
+  
+  # Ensure cluster_labels is not a function (reactive value)
+  if (is.function(cluster_labels)) {
+    print("Warning: cluster_labels is a function in createGeneralHeatmap, trying to evaluate it")
+    tryCatch({
+      cluster_labels <- cluster_labels()
+    }, error = function(e) {
+      print(paste("Error evaluating cluster_labels:", e$message))
+      cluster_labels <- NULL
+    })
+  }
+  
+  # Create default cluster labels if not provided
+  if (is.null(cluster_labels)) {
+    print("Creating default cluster labels in createGeneralHeatmap")
+    unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
+    cluster_labels <- setNames(
+      paste("Cluster", unique_clusters),
+      as.character(unique_clusters)
+    )
   }
   
   # Subset to active clusters if provided
@@ -172,7 +215,6 @@ createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels, active_clust
       ordered_clusters <- c(ordered_clusters, setdiff(unique_clusters, ordered_clusters))
     }
     
-    
     # Replace unique_clusters with ordered version
     unique_clusters <- ordered_clusters
   }
@@ -188,8 +230,9 @@ createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels, active_clust
   
   # Set column names using cluster labels
   col_names <- sapply(unique_clusters, function(x) {
-    if (as.character(x) %in% names(cluster_labels)) {
-      cluster_labels[[as.character(x)]]
+    cluster_key <- as.character(x)
+    if (cluster_key %in% names(cluster_labels)) {
+      cluster_labels[[cluster_key]]
     } else {
       paste("Cluster", x)
     }

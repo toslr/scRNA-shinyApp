@@ -23,7 +23,10 @@ buildServer <- function() {
     # Chain the reactive values through the modules
     processed_seurat <- qcServer("qc", seurat_data)
     clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat)
-    de_module <- deAnalysisServer("de", clustered_seurat)
+    
+    cluster_management <- clusterManagementServer("clusterManagement", clustered_seurat)
+    
+    de_module <- deAnalysisServer("de", clustered_seurat, cluster_management)
     
     # Create reactive values to track completion of each step
     steps_completed <- reactiveValues(
@@ -36,14 +39,6 @@ buildServer <- function() {
     )
     
     # Initialize save/load module
-    #saveLoadServer("saveLoad", 
-    #               seurat_data, 
-    #               metadata_module, 
-    #               processed_seurat,
-    #               clustered_seurat, 
-    #               de_module,
-    #               steps_completed,
-    #               session)
     loaded_analysis <- saveLoadServer("saveLoad", 
                                       seurat_data, 
                                       metadata_module, 
@@ -61,6 +56,14 @@ buildServer <- function() {
       if (!is.null(data$seurat_data)) {
         data_input(data$seurat_data)  # Here data_input is the reactiveVal that seurat_data depends on
       }
+    })
+    
+    # Render cluster management UI in sidebar only when clustering is done
+    output$clusterManagementSection <- renderUI({
+      req(clustered_seurat())
+      req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
+      
+      clusterManagementUI("clusterManagement")
     })
     
     # Setup observers

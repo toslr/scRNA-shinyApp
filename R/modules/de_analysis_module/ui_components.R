@@ -1,50 +1,5 @@
 # R/modules/de_analysis_module/ui_components.R
 
-createClusterControls <- function(ns, available_clusters, current_temp_labels, current_active) {
-  tagList(
-    # Individual cluster controls
-    lapply(available_clusters, function(cluster) {
-      cluster_key <- as.character(cluster)
-      is_active <- if (cluster_key %in% names(current_active)) {
-        current_active[[cluster_key]]
-      } else {
-        TRUE  # Default to active if not found
-      }
-      
-      current_label <- if (cluster_key %in% names(current_temp_labels)) {
-        current_temp_labels[[cluster_key]]
-      } else {
-        paste("Cluster", cluster)
-      }
-      
-      div(
-        style = paste0(
-          "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
-          if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
-        ),
-        fluidRow(
-          column(1,
-                 checkboxInput(ns(paste0("active_", cluster)), 
-                               label = NULL,
-                               value = is_active)
-          ),
-          column(4, 
-                 tags$div(
-                   tags$label(
-                     style = "margin-bottom: 5px; font-weight: normal;",
-                     paste("Cluster", cluster)
-                   ),
-                   textInput(ns(paste0("label_", cluster)),
-                             label = NULL,
-                             value = current_label)
-                 )
-          )
-        )
-      )
-    })
-  )
-}
-
 createAnalysisUI <- function(ns, cluster_choices) {
   # Check if we have enough clusters for analysis
   has_clusters <- length(cluster_choices) > 0

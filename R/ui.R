@@ -68,6 +68,9 @@ buildUI <- function() {
                   )
               )
           ),
+          
+          uiOutput("clusterManagementSection"),
+          
           div(
             id= "copyright",
             tags$hr(),

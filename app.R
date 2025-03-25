@@ -39,6 +39,7 @@ source("R/modules/metadata_module.R")
 source("R/modules/qc_module.R")
 source("R/modules/dimension_reduction_module.R")
 source("R/modules/save_load_module.R")
+source("R/modules/cluster_management_module.R")
 
 # Source server files
 source("R/server/observers.R")
