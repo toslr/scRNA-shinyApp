@@ -1,4 +1,4 @@
-# shinyscRNA: Single-Cell RNA Analysis Tool
+# shinyscRNA: Single-Cell RNA Analysis Tool 
 
 A comprehensive Shiny application for analyzing single-cell RNA sequencing data with an intuitive modular workflow.
 
