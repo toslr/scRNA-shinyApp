@@ -2,29 +2,8 @@
 
 clusterManagementUI <- function(id) {
   ns <- NS(id)
-  
-  div(class = "sidebar-section collapsible-section",
-      div(class = "section-header",
-          h4("Cluster Management", style = "display: inline;"),
-          tags$button(
-            class = "btn btn-link btn-collapse",
-            tags$i(class = "fa fa-chevron-down")
-          )
-      ),
-      div(class = "section-content",
-          div(
-            style = "display: flex; align-items: center; margin-bottom: 10px;",
-            checkboxInput(ns("selectAllClusters"), "Select All Clusters", value = TRUE),
-            tags$div(style = "margin-left: 8px;",
-                     actionButton(ns("updateAllLabels"), "Save Labels", 
-                                  class = "btn-sm btn-primary")
-            )
-          ),
-          div(id = ns("clusterManagement"),
-              style = "max-height: 300px; overflow-y: auto;",
-              uiOutput(ns("clusterControls"))
-          )
-      )
+  tagList(
+    uiOutput(ns("clusterRows"))
   )
 }
 
@@ -85,6 +64,26 @@ clusterManagementServer <- function(id, clustered_seurat) {
     
     # Setup UI for cluster controls
     output$clusterControls <- renderUI({
+      available_clusters <- getAvailableClusters(clustered_seurat())
+      
+      # Show message if no clusters
+      if (is.null(available_clusters) || length(available_clusters) == 0) {
+        return(div(
+          class = "alert alert-info",
+          "No clusters available. Please run the clustering step first."
+        ))
+      }
+      
+      # Get current labels and active status
+      current_temp_labels <- state$temp_labels()
+      current_active <- state$active_clusters()
+      
+      # Return UI
+      createClusterControls(ns, available_clusters, current_temp_labels, current_active)
+    })
+    
+    # Setup UI for clusters
+    output$clusterRows <- renderUI({
       available_clusters <- getAvailableClusters(clustered_seurat())
       
       # Show message if no clusters

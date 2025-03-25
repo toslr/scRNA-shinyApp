@@ -69,11 +69,47 @@ buildUI <- function() {
               )
           ),
           
-          uiOutput("clusterManagementSection"),
+          div(class = "sidebar-section collapsible-section",
+              div(class = "section-header",
+                  h4("Sample management", style = "display: inline;"),
+                  tags$button(
+                    class = "btn btn-link btn-collapse",
+                    tags$i(class = "fa fa-chevron-down")
+                  )
+              ),
+              div(class = "section-content",
+                  saveLoadUI("saveLoad")
+              )
+          ),
+          
+          div(class = "sidebar-section collapsible-section",
+              div(class = "section-header",
+                  h4("Condition management", style = "display: inline;"),
+                  tags$button(
+                    class = "btn btn-link btn-collapse",
+                    tags$i(class = "fa fa-chevron-down")
+                  )
+              ),
+              div(class = "section-content",
+                  saveLoadUI("saveLoad")
+              )
+          ),
+          
+          div(class = "sidebar-section collapsible-section",
+              div(class = "section-header",
+                  h4("Cluster Management", style = "display: inline;"),
+                  tags$button(
+                    class = "btn btn-link btn-collapse",
+                    tags$i(class = "fa fa-chevron-down")
+                  )
+              ),
+              div(class = "section-content",
+                  uiOutput("clusterControls")
+              )
+          ),
           
           div(
             id= "copyright",
-            tags$hr(),
             p("© Tom Soulaire",
               style = "text-align: left; color: #666; font-size: 0.9em; margin-bottom: 5px;"),
             p("Zuchero Lab",

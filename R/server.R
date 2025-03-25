@@ -58,12 +58,38 @@ buildServer <- function() {
       }
     })
     
-    # Render cluster management UI in sidebar only when clustering is done
-    output$clusterManagementSection <- renderUI({
-      req(clustered_seurat())
-      req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
+    output$clusterControls <- renderUI({
+      has_clustered <- !is.null(clustered_seurat())
+      has_clusters <- FALSE
       
-      clusterManagementUI("clusterManagement")
+      if (has_clustered) {
+        tryCatch({
+          has_clusters <- "seurat_clusters" %in% colnames(clustered_seurat()@meta.data)
+        }, error = function(e) {
+          print(paste("Error checking for clusters:", e$message))
+        })
+      }
+
+      if (!has_clustered || !has_clusters) {
+        return(div(
+          class = "alert alert-info",
+          style = "margin-top: 10px; margin-bottom: 10px;",
+          "Cluster controls will appear here after the clustering step is complete."
+        ))
+      }
+      
+      div(
+        style = "margin-top: 10px;",
+        div(
+          style = "display: flex; align-items: center; margin-bottom: 10px;",
+          checkboxInput("selectAllClusters", "Select All Clusters", value = TRUE),
+          tags$div(style = "margin-left: 8px;",
+                   actionButton("updateAllLabels", "Save Labels", 
+                                class = "btn-sm btn-primary")
+          )
+        ),
+        clusterManagementUI("clusterManagement")
+      )
     })
     
     # Setup observers

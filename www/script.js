@@ -27,7 +27,7 @@ $(document).ready(function() {
   
   // Initialize sections based on saved state (if any)
   $('.collapsible-section').each(function(index) {
-    var defaultCollapsed = [2,3];
+    var defaultCollapsed = [2,3,4,5,6];
     var isCollapsed = defaultCollapsed.includes(index);
     if (isCollapsed) {
       $(this).addClass('collapsed');

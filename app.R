@@ -27,11 +27,11 @@ source("R/modules/dimension_reduction_module.R")
 source("R/modules/dimension_reduction_utils/dimred_utils.R")
 
 # Source de_module
-source("R/modules/de_analysis_module/de_analysis_module.R")
-source("R/modules/de_analysis_module/cluster_utils.R")
-source("R/modules/de_analysis_module/de_computation.R")
-source("R/modules/de_analysis_module/visualization.R")
-source("R/modules/de_analysis_module/ui_components.R")
+source("R/modules/de_analysis_module.R")
+source("R/modules/de_analysis_utils/cluster_utils.R")
+source("R/modules/de_analysis_utils/de_computation.R")
+source("R/modules/de_analysis_utils/visualization.R")
+source("R/modules/de_analysis_utils/ui_components.R")
 
 #source other modules
 source("R/modules/metadata_module.R")
