@@ -1,61 +1,258 @@
-# scRNA Analysis App
+# shinyscRNA: Single-Cell RNA Analysis Tool
+
+A comprehensive Shiny application for analyzing single-cell RNA sequencing data with an intuitive modular workflow.
+
+## Table of Contents
+- [Installation](#installation)
+- [User Guide](#user-guide)
+  - [Metadata Import](#metadata-import)
+  - [Data Input](#data-input)
+  - [Quality Control](#quality-control)
+  - [Dimension Reduction](#dimension-reduction)
+  - [Differential Expression](#differential-expression)
+  - [Saving and Loading](#saving-and-loading)
+- [Code Architecture](#code-architecture)
+  - [App Structure](#app-structure)
+  - [Module System](#module-system)
+  - [Code Documentation](#code-documentation)
 
 ## Installation
 
-1. Make sure you have R installed on your system
-2. Clone this repository
-3. Run the installation script:
-   ```R
-   source("install.R")
-   ```
+### Prerequisites
+- R (version 4.0.0 or higher)
+- RStudio (recommended for development)
 
-## Running the App
+### Installation Steps
 
-After installation, you can run the app using:
-```R
+1. Clone the repository:
+```bash
+git clone https://github.com/your-username/shinyscRNA.git
+cd shinyscRNA
+```
+
+2. Install required R packages:
+```r
+source("install.R")
+```
+
+This will install all dependencies required by the application, including:
+- shiny
+- Seurat
+- patchwork
+- dplyr
+- ggplot2
+- plotly
+- DT
+- pheatmap
+- GEOquery
+- RColorBrewer
+- and other needed packages
+
+3. Launch the application:
+```r
 shiny::runApp()
 ```
 
+## User Guide
 
-## App walkthrough
-### What is the usage?
-This app is designed to analyze preprocessed single cell RNA sequencing data. The app is designed to be user friendly and allow for easy analysis of single cell data, contains multiple renderings and allows some flexibility in the analysis.  
-If you have a `_series_matrix.txt.gz` file and a folder containing count matrices in `.txt.gz` format, this app is for you!
+The shinyscRNA app provides a step-by-step workflow for analyzing single-cell RNA sequencing data. Follow these steps to complete your analysis:
 
-### What is not the usage?
-If you have other types of data, including raw scRNA, or other RNA sequencing data, this app does not support your type of data.
+### Metadata Import
 
-### How to install the app?
+1. **GEO Series Input**:
+   - Enter a GEO Series ID (e.g., "GSE123456") in the input field.
+   - Click "Fetch GEO Metadata".
+   - The application will load sample metadata from the Gene Expression Omnibus.
+   - After loading, you'll see a table showing all samples in the dataset.
+   - Use the checkboxes to select which samples to include in your analysis.
 
-Currently supported versions include Windows and MacOS.
+### Data Input
 
-1. Clone or download the repository. If you downloaded it, unzip the file.
+1. **Data Selection**:
+   - After selecting samples from the metadata step, click "Select Data Directory".
+   - Navigate to the folder containing your expression data files.
+   - The app expects files matching the GEO IDs selected in the previous step.
+   - Click "Read Data" to import the expression matrices into the application.
 
-2. In a terminal, navigate to the directory of the app and launch the install.R script. This will install all necessary packages for the app to run.
+### Quality Control
 
-### How to use the app?
-1. Launch the application in a browser by clicking on the desktop icon or by running the command `shiny::runApp()` in the R console.
+1. **QC Metrics Inspection**:
+   - After data input, the QC section will display violin plots showing:
+     - Number of features (genes) per cell
+     - Number of UMI counts per cell
+     - Percentage of mitochondrial reads
+   - These plots help identify low-quality cells.
 
-2. In the sidebar, input your GEO Series ID and click on Fetch. The app will download the clinical metadata from your study and display it in a table. You can then select which samples to include in your following analysis. The navigation part in the sidebar gets updated at each step and allows you to easily navigate between the different parts of your analysis.
+2. **Filter Parameters**:
+   - Adjust these parameters based on your QC plots:
+     - Minimum Features: Cells with fewer features than this will be filtered out.
+     - Maximum Features: Cells with more features than this will be filtered out (removes potential doublets).
+     - Maximum MT %: Cells with higher mitochondrial percentage will be filtered out (typically dying cells).
+   - Click "Filter and run PCA" to apply these filters and normalize the data.
 
-3. In the sidebar, click on "Select Data Directory" and browse to the folder containing your count matrices. Hit "Select" and then "Read Data". This is the most computationally intense part, depending on your data size and computer this can take a few minutes. A Seurat object containing your data is created.
+### Dimension Reduction
 
-4. In the main panel, violin plots show quality metrics for your samples. The controls below allow you to filter out outliers (cells with too much or too little expression,...). Click Filter and run PCA to go to the next step. As with other step, you can go back later to this stage and restart the analysis from here.
+1. **PCA Elbow Plot**:
+   - After QC filtering, an elbow plot will show variance explained by each principal component.
+   - A suggested number of dimensions will be highlighted based on the elbow point.
+   - You can adjust this number if needed.
 
-5. In the dimension reduction section, a PCA is run to reduce the dimensionality of the dataset. If you're not familiar with PCA, I recommend ******** for reference. Long-story short, you want to maximize the components that discriminate your data, i.e. those with the highest standard deviation. The elbow plot shows this metrics, and the control panel below allows you to select how many dimensions to keep. There is no good answer to that, generally we aim for the elbow of the curve. You can hit Run UMAP.
+2. **UMAP Visualization**:
+   - Click "Confirm Dimensions" to proceed with the selected number of PCs.
+   - Enter a clustering resolution (0.4-0.8 is common; higher values create more clusters).
+   - Click "Run Clustering" to perform graph-based clustering.
+   - The UMAP plots will show cells colored by:
+     - Sample origin (left panel default)
+     - Cluster assignment (right panel default)
+   - Toggle between 2D and 3D visualizations using the buttons.
+   - Search for specific genes to visualize their expression on the UMAP.
+   - Download plots using the "Save Plot" buttons.
 
-6. The UMAP plot shows your data in a 2D space, considering the 2 prevailing dimensions.You can adjust the threshold below for clustering resolution. The higher the resolution, the more clusters there will be. This step uses Louvain algorithm to find an optimal number of clusters. Hit Run Clustering. If the results are not satisfying, adjust the resolution and hit Run Clustering again. 
+3. **Cluster Management**:
+   - In the sidebar, you can rename clusters based on marker genes.
+   - Enable/disable clusters for downstream analysis.
+   - Click "Save Labels" to store your cluster annotations.
 
-7. In the Differential Expression section, you are given the possibility to select clusters you want to work with and rename them depending on their charateristics. Remember to hit the Update All Cluster Labels every time you make a change to the clusters. Running One vs ALl Analysis allows you to identify most expressed genes in a specific cluster, and for instance determine what it corresponds to. Running the One vs One analysis allows you to compare one cluster to another in terms of differential expression. Once the DE is run, you have the possibility to show a heatmap with the x most expressed genes from your cluster, and compare this expression across the other clusters.
+### Differential Expression
 
-8. As of now, the saving functionality is still under development. 
+1. **DE Analysis Options**:
+   - **One vs All Analysis**: Compare gene expression in one cluster against all others.
+   - **One vs One Analysis**: Compare gene expression between two specific clusters.
+   - **General Cluster Map**: Create a heatmap showing top marker genes for each cluster.
 
+2. **Results Visualization**:
+   - **Volcano Plot**: Shows significantly up/down-regulated genes.
+   - **Gene Table**: Displays differential expression statistics for all genes.
+   - **Heatmap**: Shows expression patterns of top differentially expressed genes.
+   - All visualizations can be saved for inclusion in reports.
 
-### 
-## Requirements
-- R version 4.0.0 or higher
-- All packages listed in install.R
+### Saving and Loading
 
-## Contact
-Tom Soulaire
-Stanford University
+1. **Save Analysis**:
+   - Click "Save Analysis" in the sidebar.
+   - Enter a name for your analysis.
+   - This saves the entire state of your analysis, including:
+     - Loaded data
+     - QC parameters
+     - Clustering results
+     - Differential expression results
+
+2. **Load Analysis**:
+   - Click "Load Analysis" in the sidebar.
+   - Select a previously saved analysis from the dropdown.
+   - The application will restore all states from the saved session.
+
+## Code Architecture
+
+### App Structure
+
+The application follows a modular design pattern with these main components:
+
+```
+shinyscRNA/
+├── app.R                  # Main application entry point
+├── R/
+│   ├── ui.R               # User interface definition
+│   ├── server.R           # Server function definition
+│   ├── modules/           # Functional modules
+│   │   ├── data_input_module.R
+│   │   ├── metadata_module.R
+│   │   ├── qc_module.R
+│   │   ├── dimension_reduction_module.R
+│   │   ├── de_analysis_module/
+│   │   │   ├── de_analysis_module.R
+│   │   │   ├── cluster_utils.R
+│   │   │   ├── de_computation.R
+│   │   │   ├── visualization.R
+│   │   │   └── ui_components.R
+│   │   ├── cluster_management_module.R
+│   │   └── save_load_module.R
+│   ├── server/
+│   │   ├── navigation.R
+│   │   ├── observers.R
+│   │   └── sections.R
+│   └── modules/*_utils/   # Utility functions for modules
+└── www/                   # Web assets
+    ├── script.js
+    └── styles.css
+```
+
+### Module System
+
+Each major functionality is encapsulated in a module following the Shiny module pattern:
+
+1. **Metadata Module**:
+   - Imports sample metadata from GEO
+   - Manages sample selection
+
+2. **Data Input Module**:
+   - Handles file selection and reading
+   - Creates initial Seurat objects
+
+3. **QC Module**:
+   - Generates QC metrics visualizations
+   - Applies filtering and normalization
+
+4. **Dimension Reduction Module**:
+   - Performs PCA and determines optimal dimensions
+   - Runs UMAP and clustering
+   - Visualizes dimensionality reduction results
+
+5. **Cluster Management Module**:
+   - Allows renaming and activation/deactivation of clusters
+
+6. **DE Analysis Module**:
+   - Performs differential expression analysis between clusters
+   - Generates volcano plots, tables, and heatmaps
+
+7. **Save/Load Module**:
+   - Handles saving and loading analysis states
+
+### Code Documentation
+
+The code uses function-level documentation with descriptive names. For comprehensive documentation:
+
+1. **Adding Roxygen-style Documentation**:
+   - Consider adding Roxygen2 documentation to functions:
+   ```r
+   #' Process Seurat QC Filtering
+   #' 
+   #' This function applies quality control filtering to a Seurat object based on specified parameters.
+   #' 
+   #' @param seurat_obj A Seurat object to filter
+   #' @param min_feature Minimum number of features (genes) per cell
+   #' @param max_feature Maximum number of features per cell
+   #' @param max_mt Maximum percentage of mitochondrial reads
+   #' @return A filtered and normalized Seurat object with PCA run
+   #' 
+   processQCFiltering <- function(seurat_obj, min_feature, max_feature, max_mt) {
+      # Function implementation
+   }
+   ```
+
+2. **Module Design**:
+   - Each module follows the standard Shiny module pattern:
+     - `moduleNameUI(id)` function for UI components
+     - `moduleNameServer(id, ...)` function for server logic
+     - Returns reactive expressions for inter-module communication
+
+3. **Extending the Application**:
+   - Add new modules by following the existing pattern
+   - Update `app.R` to include new module source files
+   - Update the UI and server functions to integrate new modules
+
+---
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+## Acknowledgements
+
+- [Seurat](https://satijalab.org/seurat/) - The core single-cell analysis framework
+- [Shiny](https://shiny.rstudio.com/) - The web application framework
+- Stanford University, Zuchero Lab
