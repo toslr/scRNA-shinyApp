@@ -84,14 +84,14 @@ buildUI <- function() {
           
           div(class = "sidebar-section collapsible-section",
               div(class = "section-header",
-                  h4("Condition management", style = "display: inline;"),
+                  h4("Condition Management", style = "display: inline;"),
                   tags$button(
                     class = "btn btn-link btn-collapse",
                     tags$i(class = "fa fa-chevron-down")
                   )
               ),
               div(class = "section-content",
-                  saveLoadUI("saveLoad")
+                  uiOutput("conditionControls")
               )
           ),
           

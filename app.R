@@ -41,6 +41,7 @@ source("R/modules/dimension_reduction_module.R")
 source("R/modules/save_load_module.R")
 source("R/modules/cluster_management_module.R")
 source("R/modules/sample_management_module.R")
+source("R/modules/condition_management_module.R")
 
 # Source server files
 source("R/server/observers.R")

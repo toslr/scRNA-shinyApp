@@ -21,10 +21,11 @@ buildServer <- function() {
     })
     
     sample_management <- sampleManagementServer("sampleManagement", seurat_data)
+    condition_management <- conditionManagementServer("conditionManagement", seurat_data, metadata_module)
     
     # Chain the reactive values through the modules
     processed_seurat <- qcServer("qc", seurat_data)
-    clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat, sample_management)
+    clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat, sample_management, condition_management)
     
     cluster_management <- clusterManagementServer("clusterManagement", clustered_seurat)
     
@@ -38,7 +39,8 @@ buildServer <- function() {
       dimred = FALSE,
       clustering = FALSE,
       de = FALSE,
-      sample_management = FALSE
+      sample_management = FALSE,
+      condition_management = FALSE
     )
     
     # Initialize save/load module
@@ -130,6 +132,24 @@ buildServer <- function() {
       )
     })
     
+    # Render condition controls UI
+    output$conditionControls <- renderUI({
+      has_data <- !is.null(seurat_data())
+      
+      if (!has_data) {
+        return(div(
+          class = "alert alert-info",
+          style = "margin-top: 10px; margin-bottom: 10px;",
+          "Condition controls will appear here after data is loaded."
+        ))
+      }
+      
+      div(
+        style = "margin-top: 10px;",
+        conditionManagementUI("conditionManagement")
+      )
+    })
+    
     # Handle the sample management all samples checkbox
     observeEvent(input$selectAllSamples, {
       if (is.function(sample_management$updateActiveStatus)) {
@@ -155,7 +175,7 @@ buildServer <- function() {
     
     # Setup observers
     setupObservers(steps_completed, seurat_data, metadata_module, processed_seurat, 
-                   clustered_seurat, de_module, sample_management)
+                   clustered_seurat, de_module, sample_management, condition_management)
     
     # Setup sections
     setupSections(input, output, seurat_data, metadata_handler, processed_seurat, 

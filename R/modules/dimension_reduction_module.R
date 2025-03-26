@@ -38,7 +38,7 @@ dimensionReductionUI <- function(id) {
   )
 }
 
-dimensionReductionServer <- function(id, processed_seurat, sample_management) {
+dimensionReductionServer <- function(id, processed_seurat, sample_management = NULL, condition_management = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
@@ -118,12 +118,32 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management) {
       # Update state
       values$dims_confirmed <- TRUE
       
-      # Get active samples and filter
-      active_samples <- sample_management$getActiveSampleIds()
-      filtered_seurat <- filterBySamples(processed_seurat(), active_samples)
-      
       # Pre-compute UMAPs for both 2D and 3D
       withProgress(message = 'Computing UMAPs...', {
+        # Start with the original seurat object
+        filtered_seurat <- processed_seurat()
+        
+        # Apply sample filtering if available
+        if (!is.null(sample_management) && is.function(sample_management$getActiveSampleIds)) {
+          active_samples <- sample_management$getActiveSampleIds()
+          if (!is.null(active_samples) && length(active_samples) > 0) {
+            filtered_seurat <- filterBySamples(filtered_seurat, active_samples)
+          }
+        }
+        
+        # Apply condition filtering if available
+        if (!is.null(condition_management) && 
+            is.function(condition_management$getConditionColumn) && 
+            is.function(condition_management$getActiveConditions)) {
+          
+          condition_column <- condition_management$getConditionColumn()
+          active_conditions <- condition_management$getActiveConditions()
+          
+          if (!is.null(condition_column) && !is.null(active_conditions) && length(active_conditions) > 0) {
+            filtered_seurat <- filterByConditions(filtered_seurat, condition_column, active_conditions)
+          }
+        }
+        
         # Run 2D UMAP
         incProgress(0.4, detail = "Computing 2D UMAP")
         seurat_2d <- runUMAP(filtered_seurat, input$nDims, n_components = 2, 

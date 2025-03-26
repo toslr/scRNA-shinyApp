@@ -1,7 +1,7 @@
 # R/observers.R
 
 setupObservers <- function(steps_completed, seurat_data, metadata_module, processed_seurat, 
-                           clustered_seurat, de_module, sample_management) {
+                           clustered_seurat, de_module, sample_management, condition_management) {
   
   # Track metadata completion
   observe({
@@ -43,4 +43,20 @@ setupObservers <- function(steps_completed, seurat_data, metadata_module, proces
     }
   })
   
+  # Track condition management completion
+  observe({
+    if (!is.null(condition_management)) {
+      condition_column <- condition_management$getConditionColumn()
+      condition_active_status <- condition_management$getActiveStatus()
+      
+      if (!is.null(condition_column) && !is.null(condition_active_status)) {
+        active_conditions <- names(condition_active_status[condition_active_status == TRUE])
+        steps_completed$condition_management <- length(active_conditions) > 0
+      } else {
+        steps_completed$condition_management <- FALSE
+      }
+    } else {
+      steps_completed$condition_management <- FALSE
+    }
+  })
 }
