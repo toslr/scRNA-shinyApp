@@ -20,9 +20,11 @@ buildServer <- function() {
       data_input()
     })
     
+    sample_management <- sampleManagementServer("sampleManagement", seurat_data)
+    
     # Chain the reactive values through the modules
     processed_seurat <- qcServer("qc", seurat_data)
-    clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat)
+    clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat, sample_management)
     
     cluster_management <- clusterManagementServer("clusterManagement", clustered_seurat)
     
@@ -35,7 +37,8 @@ buildServer <- function() {
       qc = FALSE,
       dimred = FALSE,
       clustering = FALSE,
-      de = FALSE
+      de = FALSE,
+      sample_management = FALSE
     )
     
     # Initialize save/load module
@@ -92,9 +95,67 @@ buildServer <- function() {
       )
     })
     
+    output$sampleControls <- renderUI({
+      has_samples <- !is.null(seurat_data())
+      has_available_samples <- FALSE
+      
+      if (has_samples) {
+        tryCatch({
+          has_available_samples <- "sample" %in% colnames(seurat_data()@meta.data) && 
+            length(unique(seurat_data()$sample)) > 0
+        }, error = function(e) {
+          print(paste("Error checking for samples:", e$message))
+        })
+      }
+      
+      if (!has_samples || !has_available_samples) {
+        return(div(
+          class = "alert alert-info",
+          style = "margin-top: 10px; margin-bottom: 10px;",
+          "Sample controls will appear here after data is loaded."
+        ))
+      }
+      
+      div(
+        style = "margin-top: 10px;",
+        div(
+          style = "display: flex; align-items: center; margin-bottom: 10px;",
+          checkboxInput("selectAllSamples", "Select All Samples", value = TRUE),
+          tags$div(style = "margin-left: 8px;",
+                   actionButton("updateSampleLabels", "Save Labels", 
+                                class = "btn-sm btn-primary")
+          )
+        ),
+        sampleManagementUI("sampleManagement")
+      )
+    })
+    
+    # Handle the sample management all samples checkbox
+    observeEvent(input$selectAllSamples, {
+      if (is.function(sample_management$updateActiveStatus)) {
+        samples_object <- seurat_data()
+        if (!is.null(samples_object) && "sample" %in% colnames(samples_object@meta.data)) {
+          all_samples <- unique(samples_object$sample)
+          new_active <- setNames(
+            rep(input$selectAllSamples, length(all_samples)),
+            all_samples
+          )
+          sample_management$updateActiveStatus(new_active)
+        }
+      }
+    })
+    
+    # Handle sample label updates button
+    observeEvent(input$updateSampleLabels, {
+      if (is.function(sample_management$getSampleLabels)) {
+        # This will trigger the module's internal update function
+        # The module handles the actual label updates
+      }
+    })
+    
     # Setup observers
     setupObservers(steps_completed, seurat_data, metadata_module, processed_seurat, 
-                   clustered_seurat, de_module)
+                   clustered_seurat, de_module, sample_management)
     
     # Setup sections
     setupSections(input, output, seurat_data, metadata_handler, processed_seurat, 

@@ -38,7 +38,7 @@ dimensionReductionUI <- function(id) {
   )
 }
 
-dimensionReductionServer <- function(id, processed_seurat) {
+dimensionReductionServer <- function(id, processed_seurat, sample_management) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
@@ -118,11 +118,15 @@ dimensionReductionServer <- function(id, processed_seurat) {
       # Update state
       values$dims_confirmed <- TRUE
       
+      # Get active samples and filter
+      active_samples <- sample_management$getActiveSampleIds()
+      filtered_seurat <- filterBySamples(processed_seurat(), active_samples)
+      
       # Pre-compute UMAPs for both 2D and 3D
       withProgress(message = 'Computing UMAPs...', {
         # Run 2D UMAP
         incProgress(0.4, detail = "Computing 2D UMAP")
-        seurat_2d <- runUMAP(processed_seurat(), input$nDims, n_components = 2, 
+        seurat_2d <- runUMAP(filtered_seurat, input$nDims, n_components = 2, 
                              reduction.name = "umap2d", reduction.key = "UMAP2D_")
         
         # Run 3D UMAP

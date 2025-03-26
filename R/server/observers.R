@@ -1,7 +1,7 @@
 # R/observers.R
 
 setupObservers <- function(steps_completed, seurat_data, metadata_module, processed_seurat, 
-                           clustered_seurat, de_module) {
+                           clustered_seurat, de_module, sample_management) {
   
   # Track metadata completion
   observe({
@@ -31,4 +31,16 @@ setupObservers <- function(steps_completed, seurat_data, metadata_module, proces
   observe({
     steps_completed$de <- !is.null(de_module$status()) && de_module$status() == "completed"
   })
+  
+  # Track sample management completion
+  observe({
+    sample_active_status <- sample_management$getActiveStatus()
+    if (!is.null(sample_active_status)) {
+      active_samples <- names(sample_active_status[sample_active_status == TRUE])
+      steps_completed$sample_management <- length(active_samples) > 0
+    } else {
+      steps_completed$sample_management <- FALSE
+    }
+  })
+  
 }
