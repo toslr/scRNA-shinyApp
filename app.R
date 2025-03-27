@@ -30,7 +30,9 @@ source("R/modules/qc_module.R")
 
 # Source dimred
 source("R/modules/dimension_reduction_module.R")
-source("R/modules/dimension_reduction_utils/dimred_utils.R")
+#source("R/modules/dimension_reduction_utils/dimred_utils.R")
+source("R/modules/dimension_reduction_utils/dimred_computation.R")
+source("R/modules/dimension_reduction_utils/dimred_visualization.R")
 
 # Source de_module
 source("R/modules/de_analysis_module.R")
