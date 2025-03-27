@@ -207,6 +207,186 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       })
     })
     
+    # Helper to get unique values for a metadata column
+    get_unique_values <- function(column_name) {
+      req(values$clustered_seurat)
+      
+      if (column_name == "cluster" && "seurat_clusters" %in% colnames(values$clustered_seurat@meta.data)) {
+        # For clusters, get them as characters but sort numerically
+        cluster_values <- unique(as.character(values$clustered_seurat$seurat_clusters))
+        # Convert to numeric, sort, then back to character
+        return(as.character(sort(as.numeric(cluster_values))))
+      } else if (column_name %in% colnames(values$clustered_seurat@meta.data)) {
+        # For other metadata columns
+        metadata_values <- unique(as.character(values$clustered_seurat@meta.data[[column_name]]))
+        
+        # Check if values are numeric and sort appropriately
+        if (all(grepl("^\\d+$", metadata_values)) || 
+            all(grepl("^\\d+\\.\\d+$", metadata_values))) {
+          # If all values appear to be numeric, sort numerically
+          return(as.character(sort(as.numeric(metadata_values))))
+        } else {
+          # Otherwise sort alphabetically
+          return(sort(metadata_values))
+        }
+      } else {
+        return(character(0))
+      }
+    }
+    
+    # Reactive values to track active items for each plot
+    left_active_items <- reactiveVal(NULL)
+    right_active_items <- reactiveVal(NULL)
+    
+    # Update active items when color_by changes
+    observe({
+      if (values$left_color_by == "cluster") {
+        left_active_items(get_unique_values("cluster"))
+      } else if (values$left_color_by == "sample") {
+        left_active_items(get_unique_values("sample"))
+      } else if (values$left_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        left_active_items(get_unique_values(values$left_color_by))
+      }
+    })
+    
+    observe({
+      if (values$right_color_by == "cluster") {
+        right_active_items(get_unique_values("cluster"))
+      } else if (values$right_color_by == "sample") {
+        right_active_items(get_unique_values("sample"))
+      } else if (values$right_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        right_active_items(get_unique_values(values$right_color_by))
+      }
+    })
+    
+    # Toggle handlers for left plot
+    observeEvent(input$left_items_select_all, {
+      current_items <- if (values$left_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$left_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$left_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$left_color_by)
+      } else {
+        character(0)
+      }
+      
+      for (item in current_items) {
+        input_name <- paste0("left_items_", gsub("[^a-zA-Z0-9]", "_", item))
+        updateCheckboxInput(session, input_name, value = TRUE)
+      }
+    })
+    
+    observeEvent(input$left_items_deselect_all, {
+      current_items <- if (values$left_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$left_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$left_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$left_color_by)
+      } else {
+        character(0)
+      }
+      
+      for (item in current_items) {
+        input_name <- paste0("left_items_", gsub("[^a-zA-Z0-9]", "_", item))
+        updateCheckboxInput(session, input_name, value = FALSE)
+      }
+    })
+    
+    # Toggle handlers for right plot
+    observeEvent(input$right_items_select_all, {
+      current_items <- if (values$right_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$right_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$right_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$right_color_by)
+      } else {
+        character(0)
+      }
+      
+      for (item in current_items) {
+        input_name <- paste0("right_items_", gsub("[^a-zA-Z0-9]", "_", item))
+        updateCheckboxInput(session, input_name, value = TRUE)
+      }
+    })
+    
+    observeEvent(input$right_items_deselect_all, {
+      current_items <- if (values$right_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$right_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$right_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$right_color_by)
+      } else {
+        character(0)
+      }
+      
+      for (item in current_items) {
+        input_name <- paste0("right_items_", gsub("[^a-zA-Z0-9]", "_", item))
+        updateCheckboxInput(session, input_name, value = FALSE)
+      }
+    })
+    
+    # Item legend toggle UI for left plot
+    output$leftLegendToggle <- renderUI({
+      req(values$clustered_seurat)
+      
+      current_items <- if (values$left_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$left_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$left_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$left_color_by)
+      } else {
+        character(0)
+      }
+      
+      if (length(current_items) == 0) {
+        return(NULL)
+      }
+      
+      toggle_title <- if (values$left_color_by == "cluster") {
+        "Cluster Options"
+      } else if (values$left_color_by == "sample") {
+        "Sample Options"
+      } else {
+        paste(values$left_color_by, "Options")
+      }
+      
+      create_legend_toggle_ui(ns, current_items, "left_items", toggle_title)
+    })
+    
+    # Item legend toggle UI for right plot
+    output$rightLegendToggle <- renderUI({
+      req(values$clustered_seurat)
+      
+      current_items <- if (values$right_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$right_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$right_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$right_color_by)
+      } else {
+        character(0)
+      }
+      
+      if (length(current_items) == 0) {
+        return(NULL)
+      }
+      
+      toggle_title <- if (values$right_color_by == "cluster") {
+        "Cluster Options"
+      } else if (values$right_color_by == "sample") {
+        "Sample Options"
+      } else {
+        paste(values$right_color_by, "Options")
+      }
+      
+      create_legend_toggle_ui(ns, current_items, "right_items", toggle_title)
+    })
+    
     # UMAP visualization section
     output$umapSection <- renderUI({
       req(values$clustering_done)
@@ -246,6 +426,11 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
                        actionButton(ns("searchLeftGene"), "Search", class = "btn-sm btn-primary"),
                        uiOutput(ns("leftGeneSelection"))
                      )
+                   ),
+                   # Legend toggle for clusters/samples (not for gene expression)
+                   conditionalPanel(
+                     condition = sprintf("input['%s'] != 'gene'", ns("leftColorBy")),
+                     uiOutput(ns("leftLegendToggle"))
                    ),
                    # UMAP Visualization
                    div(
@@ -290,6 +475,11 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
                        actionButton(ns("searchRightGene"), "Search", class = "btn-sm btn-primary"),
                        uiOutput(ns("rightGeneSelection"))
                      )
+                   ),
+                   # Legend toggle for clusters/samples (not for gene expression)
+                   conditionalPanel(
+                     condition = sprintf("input['%s'] != 'gene'", ns("rightColorBy")),
+                     uiOutput(ns("rightLegendToggle"))
                    ),
                    # UMAP Visualization
                    div(
@@ -390,9 +580,127 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       right_selected_gene(input$rightSelectedGene)
     })
     
+    # Item toggle UI for left plot
+    output$leftItemToggles <- renderUI({
+      req(values$clustered_seurat)
+      
+      current_items <- if (values$left_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$left_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$left_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$left_color_by)
+      } else {
+        character(0)
+      }
+      
+      if (length(current_items) == 0) {
+        return(NULL)
+      }
+      
+      toggle_title <- if (values$left_color_by == "cluster") {
+        "Toggle Clusters"
+      } else if (values$left_color_by == "sample") {
+        "Toggle Samples"
+      } else {
+        paste("Toggle", values$left_color_by)
+      }
+      
+      create_item_toggles(ns, current_items, "left_items", toggle_title)
+    })
+    
+    # Item toggle UI for right plot
+    output$rightItemToggles <- renderUI({
+      req(values$clustered_seurat)
+      
+      current_items <- if (values$right_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$right_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$right_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$right_color_by)
+      } else {
+        character(0)
+      }
+      
+      if (length(current_items) == 0) {
+        return(NULL)
+      }
+      
+      toggle_title <- if (values$right_color_by == "cluster") {
+        "Toggle Clusters"
+      } else if (values$right_color_by == "sample") {
+        "Toggle Samples"
+      } else {
+        paste("Toggle", values$right_color_by)
+      }
+      
+      create_item_toggles(ns, current_items, "right_items", toggle_title)
+    })
+    
+    # Get active items for left plot
+    get_left_active_items <- reactive({
+      req(values$clustered_seurat)
+      
+      if (values$left_color_by == "gene") {
+        return(NULL)  # No filtering for gene expression
+      }
+      
+      current_items <- if (values$left_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$left_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$left_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$left_color_by)
+      } else {
+        character(0)
+      }
+      
+      get_active_toggle_items(input, current_items, "left_items")
+    })
+    
+    # Get active items for right plot
+    get_right_active_items <- reactive({
+      req(values$clustered_seurat)
+      
+      if (values$right_color_by == "gene") {
+        return(NULL)  # No filtering for gene expression
+      }
+      
+      current_items <- if (values$right_color_by == "cluster") {
+        get_unique_values("cluster")
+      } else if (values$right_color_by == "sample") {
+        get_unique_values("sample")
+      } else if (values$right_color_by %in% colnames(values$clustered_seurat@meta.data)) {
+        get_unique_values(values$right_color_by)
+      } else {
+        character(0)
+      }
+      
+      get_active_toggle_items(input, current_items, "right_items")
+    })
+    
+    # Helper function to get active toggle items
+    get_active_toggle_items <- function(input, items, input_id) {
+      active_items <- character(0)
+      
+      for (item in items) {
+        safe_id <- gsub("[^a-zA-Z0-9]", "_", item)
+        input_name <- paste0(input_id, "_", safe_id)
+        if (!is.null(input[[input_name]]) && input[[input_name]]) {
+          active_items <- c(active_items, item)
+        }
+      }
+      
+      return(active_items)
+    }
+    
     # Left UMAP plot functions
     output$leftUMAPPlot <- renderPlot({
       req(values$clustered_seurat, values$left_umap_type == "2D")
+      
+      # Get active items for filtering
+      active_items <- get_left_active_items()
       
       # Generate the plot based on coloring option
       if (values$left_color_by == "gene" && !is.null(left_selected_gene())) {
@@ -403,12 +711,16 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       } else {
         create_2d_umap_plot(values$clustered_seurat, 
                             color_by = values$left_color_by, 
-                            reduction = "umap2d")
+                            reduction = "umap2d",
+                            active_items = active_items)
       }
     })
     
     output$leftUMAPPlot3D <- renderPlotly({
       req(values$clustered_seurat, values$left_umap_type == "3D")
+      
+      # Get active items for filtering
+      active_items <- get_left_active_items()
       
       # Generate the plot based on coloring option
       if (values$left_color_by == "gene" && !is.null(left_selected_gene())) {
@@ -418,13 +730,17 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       } else {
         create_3d_umap_plot(values$clustered_seurat, 
                             color_by = values$left_color_by, 
-                            reduction = "umap3d")
+                            reduction = "umap3d",
+                            active_items = active_items)
       }
     })
     
     # Right UMAP plot functions
     output$rightUMAPPlot <- renderPlot({
       req(values$clustered_seurat, values$right_umap_type == "2D")
+      
+      # Get active items for filtering
+      active_items <- get_right_active_items()
       
       # Generate the plot based on coloring option
       if (values$right_color_by == "gene" && !is.null(right_selected_gene())) {
@@ -435,12 +751,16 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       } else {
         create_2d_umap_plot(values$clustered_seurat, 
                             color_by = values$right_color_by, 
-                            reduction = "umap2d")
+                            reduction = "umap2d",
+                            active_items = active_items)
       }
     })
     
     output$rightUMAPPlot3D <- renderPlotly({
       req(values$clustered_seurat, values$right_umap_type == "3D")
+      
+      # Get active items for filtering
+      active_items <- get_right_active_items()
       
       # Generate the plot based on coloring option
       if (values$right_color_by == "gene" && !is.null(right_selected_gene())) {
@@ -450,7 +770,8 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       } else {
         create_3d_umap_plot(values$clustered_seurat, 
                             color_by = values$right_color_by, 
-                            reduction = "umap3d")
+                            reduction = "umap3d",
+                            active_items = active_items)
       }
     })
     
@@ -461,6 +782,9 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         paste0("umap_left_", values$left_color_by, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".", suffix)
       },
       content = function(file) {
+        # Get active items for filtering
+        active_items <- get_left_active_items()
+        
         if (values$left_umap_type == "2D") {
           # Handle 2D plot
           p <- if (values$left_color_by == "gene" && !is.null(left_selected_gene())) {
@@ -471,7 +795,8 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           } else {
             create_2d_umap_plot(values$clustered_seurat, 
                                 color_by = values$left_color_by, 
-                                reduction = "umap2d")
+                                reduction = "umap2d",
+                                active_items = active_items)
           }
           save_ggplot(p, file)
         } else {
@@ -483,7 +808,8 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           } else {
             create_3d_umap_plot(values$clustered_seurat, 
                                 color_by = values$left_color_by, 
-                                reduction = "umap3d")
+                                reduction = "umap3d",
+                                active_items = active_items)
           }
           save_plotly(p, file)
         }
@@ -496,6 +822,9 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         paste0("umap_right_", values$right_color_by, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".", suffix)
       },
       content = function(file) {
+        # Get active items for filtering
+        active_items <- get_right_active_items()
+        
         if (values$right_umap_type == "2D") {
           # Handle 2D plot
           p <- if (values$right_color_by == "gene" && !is.null(right_selected_gene())) {
@@ -506,7 +835,8 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           } else {
             create_2d_umap_plot(values$clustered_seurat, 
                                 color_by = values$right_color_by, 
-                                reduction = "umap2d")
+                                reduction = "umap2d",
+                                active_items = active_items)
           }
           save_ggplot(p, file)
         } else {
@@ -518,7 +848,8 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           } else {
             create_3d_umap_plot(values$clustered_seurat, 
                                 color_by = values$right_color_by, 
-                                reduction = "umap3d")
+                                reduction = "umap3d",
+                                active_items = active_items)
           }
           save_plotly(p, file)
         }

@@ -145,32 +145,60 @@ search_genes <- function(seurat_obj, query) {
 #' @param ... Additional parameters to pass to DimPlot or FeaturePlot
 #' @return ggplot object
 create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL,
-                                reduction = "umap2d", label = TRUE, pt_size = 1, ...) {
+                                reduction = "umap2d", label = TRUE, pt_size = 1, 
+                                active_items = NULL, ...) {
   # Handle different coloring options
   if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
-    # Color by cluster
-    return(DimPlot(seurat_obj, 
+    # Color by cluster with optional filtering
+    if (!is.null(active_items) && length(active_items) > 0) {
+      # Filter to only show active clusters
+      cells_to_keep <- seurat_obj$seurat_clusters %in% active_items
+      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+    } else {
+      plot_obj <- seurat_obj
+    }
+    
+    return(DimPlot(plot_obj, 
                    reduction = reduction, 
                    label = label,
                    pt.size = pt_size,
                    ...))
+    
   } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
-    # Color by sample
-    return(DimPlot(seurat_obj, 
+    # Color by sample with optional filtering
+    if (!is.null(active_items) && length(active_items) > 0) {
+      # Filter to only show active samples
+      cells_to_keep <- seurat_obj$sample %in% active_items
+      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+    } else {
+      plot_obj <- seurat_obj
+    }
+    
+    return(DimPlot(plot_obj, 
                    reduction = reduction, 
                    group.by = "sample",
                    pt.size = pt_size,
                    ...))
+    
   } else if (color_by == "gene" && !is.null(gene_id) && gene_id %in% rownames(seurat_obj)) {
-    # Color by gene expression
+    # For gene expression, we use the original object but apply cell highlighting if needed
     return(FeaturePlot(seurat_obj, 
                        features = gene_id, 
                        reduction = reduction,
                        pt.size = pt_size,
                        ...))
+    
   } else if (color_by %in% colnames(seurat_obj@meta.data)) {
-    # Color by any metadata column
-    return(DimPlot(seurat_obj, 
+    # Color by any metadata column with optional filtering
+    if (!is.null(active_items) && length(active_items) > 0) {
+      # Filter to only show active values for the selected column
+      cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% active_items
+      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+    } else {
+      plot_obj <- seurat_obj
+    }
+    
+    return(DimPlot(plot_obj, 
                    reduction = reduction, 
                    group.by = color_by,
                    pt.size = pt_size,
@@ -193,26 +221,50 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
 #' @param opacity Numeric opacity (0-1)
 #' @return plotly object
 create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "umap3d",
-                                point_size = 3, opacity = 0.7) {
+                                point_size = 3, opacity = 0.7, active_items = NULL) {
+  # Handle subsetting based on active items
+  if (!is.null(active_items) && length(active_items) > 0) {
+    if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
+      cells_to_keep <- seurat_obj$seurat_clusters %in% active_items
+      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+    } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
+      cells_to_keep <- seurat_obj$sample %in% active_items
+      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+    } else if (color_by %in% colnames(seurat_obj@meta.data)) {
+      cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% active_items
+      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+    } else {
+      plot_obj <- seurat_obj
+    }
+  } else {
+    plot_obj <- seurat_obj
+  }
+  
+  # Check if we have cells to plot
+  if (ncol(plot_obj) == 0) {
+    return(plotly_empty() %>% 
+             layout(title = "No cells to display with current filter settings"))
+  }
+  
   # Extract UMAP coordinates
-  umap_data <- Embeddings(seurat_obj[[reduction]])
+  umap_data <- Embeddings(plot_obj[[reduction]])
   
   # Handle different coloring options
-  if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
-    color_var <- as.factor(seurat_obj$seurat_clusters)
+  if (color_by == "cluster" && "seurat_clusters" %in% colnames(plot_obj@meta.data)) {
+    color_var <- as.factor(plot_obj$seurat_clusters)
     plot_title <- "3D UMAP - Colored by Clusters"
     hover_text <- paste("Cluster:", color_var)
-  } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
-    color_var <- as.factor(seurat_obj$sample)
+  } else if (color_by == "sample" && "sample" %in% colnames(plot_obj@meta.data)) {
+    color_var <- as.factor(plot_obj$sample)
     plot_title <- "3D UMAP - Colored by Sample"
     hover_text <- paste("Sample:", color_var)
-  } else if (color_by %in% colnames(seurat_obj@meta.data)) {
-    color_var <- as.factor(seurat_obj@meta.data[[color_by]])
+  } else if (color_by %in% colnames(plot_obj@meta.data)) {
+    color_var <- as.factor(plot_obj@meta.data[[color_by]])
     plot_title <- paste0("3D UMAP - Colored by ", color_by)
     hover_text <- paste(color_by, ":", color_var)
   } else {
     # Default if no valid coloring option
-    color_var <- rep("Sample", ncol(seurat_obj))
+    color_var <- rep("Sample", ncol(plot_obj))
     plot_title <- "3D UMAP"
     hover_text <- rep("Cell", length(color_var))
   }
@@ -486,4 +538,75 @@ create_multi_feature_umap <- function(seurat_obj, features, reduction = "umap", 
               reduction = reduction, 
               ncol = ncol,
               ...)
+}
+
+#' Create a collapsible legend toggle UI
+#'
+#' @param ns Shiny namespace function
+#' @param items Vector of items to toggle (clusters, samples, etc.)
+#' @param input_id Base input ID to use for checkboxes
+#' @param title String title for the toggle section
+#' @param initial_state Logical whether all items should be selected initially
+#' @return Shiny UI element
+create_legend_toggle_ui <- function(ns, items, input_id, title = "Legend Options", initial_state = TRUE) {
+  if (is.null(items) || length(items) == 0) {
+    return(tags$div("No items available"))
+  }
+  
+  # Create a collapsible panel
+  dropdown_panel <- tags$div(
+    class = "panel panel-default",
+    style = "margin-bottom: 15px;",
+    
+    # Collapsible header
+    tags$div(
+      class = "panel-heading",
+      style = "cursor: pointer; padding: 8px 15px;",
+      `data-toggle` = "collapse",
+      `data-target` = paste0("#", ns(paste0(input_id, "_collapse"))),
+      tags$div(
+        style = "display: flex; justify-content: space-between; align-items: center;",
+        tags$span(tags$i(class = "fa fa-filter", style = "margin-right: 5px;"), title),
+        tags$span(class = "caret")
+      )
+    ),
+    
+    # Collapsible content 
+    tags$div(
+      id = ns(paste0(input_id, "_collapse")),
+      class = "panel-collapse collapse",
+      tags$div(
+        class = "panel-body",
+        style = "padding: 10px;",
+        
+        # Toggle buttons
+        tags$div(
+          style = "display: flex; justify-content: space-between; margin-bottom: 10px;",
+          actionButton(ns(paste0(input_id, "_select_all")), "Select All", 
+                       class = "btn-sm btn-default", 
+                       style = "flex: 1; margin-right: 5px;"),
+          actionButton(ns(paste0(input_id, "_deselect_all")), "Deselect All", 
+                       class = "btn-sm btn-default",
+                       style = "flex: 1; margin-left: 5px;")
+        ),
+        
+        # Item list with checkboxes
+        tags$div(
+          style = "max-height: 200px; overflow-y: auto; padding: 5px; border: 1px solid #ddd; border-radius: 4px;",
+          lapply(items, function(item) {
+            div(
+              style = "margin-bottom: 5px;",
+              checkboxInput(
+                ns(paste0(input_id, "_", gsub("[^a-zA-Z0-9]", "_", item))),
+                label = item,
+                value = initial_state
+              )
+            )
+          })
+        )
+      )
+    )
+  )
+  
+  return(dropdown_panel)
 }
