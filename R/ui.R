@@ -1,5 +1,10 @@
 # R/ui.R
 
+#' @title Build Application UI
+#' @description Constructs the complete user interface for the single-cell RNA-seq analysis application,
+#'   including the sidebar navigation, module UIs, and main content area.
+#' @return A Shiny UI object containing the complete application interface
+#' @export
 buildUI <- function() {
   fluidPage(
     useShinyjs(),
@@ -15,6 +20,7 @@ buildUI <- function() {
     div(
       # Sidebar
       div(id = "sidebar",
+          # Metadata section
           div(class = "sidebar-section collapsible-section",
               div(class = "section-header",
                   h4("Metadata", style = "display: inline;"),
@@ -28,6 +34,7 @@ buildUI <- function() {
               )
           ),
           
+          # Data Input section
           div(class = "sidebar-section collapsible-section",
               div(class = "section-header",
                   h4("Data Input", style = "display: inline;"),
@@ -41,6 +48,7 @@ buildUI <- function() {
               )
           ),
           
+          # Save/Load Analysis section
           div(class = "sidebar-section collapsible-section",
               div(class = "section-header",
                   h4("Save/Load Analysis", style = "display: inline;"),
@@ -54,6 +62,7 @@ buildUI <- function() {
               )
           ),
           
+          # Navigation section
           div(class = "sidebar-section collapsible-section",
               div(class = "section-header",
                   h4("Navigation", style = "display: inline;"),
@@ -69,6 +78,7 @@ buildUI <- function() {
               )
           ),
           
+          # Sample Management section
           div(class = "sidebar-section collapsible-section",
               div(class = "section-header",
                   h4("Sample Management", style = "display: inline;"),
@@ -82,6 +92,7 @@ buildUI <- function() {
               )
           ),
           
+          # Condition Management section
           div(class = "sidebar-section collapsible-section",
               div(class = "section-header",
                   h4("Condition Management", style = "display: inline;"),
@@ -95,6 +106,7 @@ buildUI <- function() {
               )
           ),
           
+          # Cluster Management section
           div(class = "sidebar-section collapsible-section",
               div(class = "section-header",
                   h4("Cluster Management", style = "display: inline;"),
@@ -108,6 +120,7 @@ buildUI <- function() {
               )
           ),
           
+          # Copyright footer
           div(
             id= "copyright",
             p("© Tom Soulaire",
@@ -119,7 +132,7 @@ buildUI <- function() {
           )
       ),
       
-      # Scrollable main content
+      # Scrollable main content area
       div(id = "main-content",
           uiOutput("metadataSection"),
           uiOutput("qcSection"),

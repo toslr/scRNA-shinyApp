@@ -1,12 +1,11 @@
 # R/modules/dimension_reduction_utils/dimred_visualization.R
 
-# This file contains visualization functions for dimension reduction results
-# It handles 2D and 3D UMAP plots, coloring by different attributes, and plot saving
-
-#' Extend color palette for potentially large number of clusters
-#'
+#' @title Extend Color Palette
+#' @description Extends a color palette for potentially large number of clusters or categories.
+#'   Uses RColorBrewer to generate colors but extends the palette for larger numbers.
 #' @param n_colors Integer number of colors needed
 #' @return Character vector of hex color codes
+#' @keywords internal
 extend_color_palette <- function(n_colors) {
   if (n_colors <= 8) {
     return(RColorBrewer::brewer.pal(8, "Set2")[1:n_colors])
@@ -15,14 +14,17 @@ extend_color_palette <- function(n_colors) {
   }
 }
 
-#' Save elbow plot to file
-#'
+#' @title Save Elbow Plot to File
+#' @description Saves a PCA elbow plot to file with a vertical line indicating the suggested
+#'   number of dimensions to use.
 #' @param file File path to save to
 #' @param seurat_obj Seurat object with PCA
 #' @param suggested_dims Integer suggested number of dimensions
 #' @param width Integer plot width in pixels
 #' @param height Integer plot height in pixels
 #' @param dpi Integer plot resolution
+#' @return Invisible NULL, called for side effect
+#' @export
 save_elbow_plot <- function(file, seurat_obj, suggested_dims, width = 3000, height = 1800, dpi = 300) {
   png(file, width = width, height = height, res = dpi)
   
@@ -35,10 +37,12 @@ save_elbow_plot <- function(file, seurat_obj, suggested_dims, width = 3000, heig
   dev.off()
 }
 
-#' Get available coloring options for a Seurat object
-#'
+#' @title Get Available Coloring Options
+#' @description Determines available options for coloring UMAPs based on the metadata
+#'   columns in a Seurat object. Prioritizes sample, cluster, and condition columns.
 #' @param seurat_obj Seurat object
 #' @return Named character vector of coloring options
+#' @export
 get_coloring_options <- function(seurat_obj) {
   # Base options
   options <- c("cluster" = "cluster")
@@ -64,11 +68,13 @@ get_coloring_options <- function(seurat_obj) {
   return(options)
 }
 
-#' Search genes in Seurat object
-#'
+#' @title Search Genes in Seurat Object
+#' @description Searches for genes in a Seurat object by gene symbol or Ensembl ID.
+#'   Returns a data frame of matching genes for display.
 #' @param seurat_obj Seurat object
 #' @param query String gene name or ID query
 #' @return Data frame of matching genes or NULL if none found
+#' @export
 search_genes <- function(seurat_obj, query) {
   if (is.null(seurat_obj) || trimws(query) == "") {
     return(NULL)
@@ -134,16 +140,19 @@ search_genes <- function(seurat_obj, query) {
   return(results)
 }
 
-#' Create a standard 2D UMAP plot
-#'
+#' @title Create 2D UMAP Plot
+#' @description Creates a standard 2D UMAP visualization with customizable coloring and filtering.
+#'   Can color by cluster, sample, gene expression, or any metadata column.
 #' @param seurat_obj Seurat object
-#' @param color_by String attribute to color by
+#' @param color_by String attribute to color by ("cluster", "sample", "gene", or metadata column)
 #' @param gene_id String gene ID (only used if color_by = "gene")
 #' @param reduction String name of reduction to use
 #' @param label Logical whether to show labels
 #' @param pt_size Numeric point size
+#' @param active_items Optional vector of items to include (for filtering)
 #' @param ... Additional parameters to pass to DimPlot or FeaturePlot
 #' @return ggplot object
+#' @export
 create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL,
                                 reduction = "umap2d", label = TRUE, pt_size = 1, 
                                 active_items = NULL, ...) {
@@ -212,14 +221,17 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
   }
 }
 
-#' Create a 3D UMAP plot using plotly
-#'
+#' @title Create 3D UMAP Plot
+#' @description Creates an interactive 3D UMAP visualization using plotly.
+#'   Can color by cluster, sample, or any metadata column.
 #' @param seurat_obj Seurat object
-#' @param color_by String attribute to color by
+#' @param color_by String attribute to color by ("cluster", "sample", or metadata column)
 #' @param reduction String name of reduction to use
 #' @param point_size Numeric point size
 #' @param opacity Numeric opacity (0-1)
+#' @param active_items Optional vector of items to include (for filtering)
 #' @return plotly object
+#' @export
 create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "umap3d",
                                 point_size = 3, opacity = 0.7, active_items = NULL) {
   # Handle subsetting based on active items
@@ -314,14 +326,15 @@ create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "u
   return(p)
 }
 
-#' Create a 3D gene expression UMAP plot using plotly
-#'
+#' @title Create 3D Gene Expression UMAP Plot
+#' @description Creates an interactive 3D UMAP visualization colored by gene expression.
 #' @param seurat_obj Seurat object
 #' @param gene_id String gene ID
 #' @param reduction String name of reduction to use
 #' @param point_size Numeric point size
 #' @param opacity Numeric opacity (0-1)
 #' @return plotly object
+#' @export
 create_3d_gene_umap_plot <- function(seurat_obj, gene_id, reduction = "umap3d",
                                      point_size = 4, opacity = 0.7) {
   # Check if gene exists in the dataset
@@ -402,11 +415,13 @@ create_3d_gene_umap_plot <- function(seurat_obj, gene_id, reduction = "umap3d",
   return(p)
 }
 
-#' Save a plotly object to an HTML file
-#'
+#' @title Save a Plotly Object to File
+#' @description Saves a plotly visualization to an HTML file.
 #' @param plot plotly object
 #' @param file String file path
 #' @param title String title for the plot
+#' @return Invisible NULL, called for side effect
+#' @export
 save_plotly <- function(plot, file, title = "UMAP Plot") {
   # Add a title if not already present
   if (!"title" %in% names(plot$x$layout)) {
@@ -421,14 +436,16 @@ save_plotly <- function(plot, file, title = "UMAP Plot") {
   )
 }
 
-#' Save a ggplot object to a file
-#'
+#' @title Save a ggplot Object to File
+#' @description Saves a ggplot visualization to a file.
 #' @param plot ggplot object
 #' @param file String file path
 #' @param width Numeric width in inches
 #' @param height Numeric height in inches
 #' @param dpi Integer resolution
 #' @param device String device type
+#' @return Invisible NULL, called for side effect
+#' @export
 save_ggplot <- function(plot, file, width = 8, height = 8, dpi = 300, device = "png") {
   ggsave(
     filename = file,
@@ -440,10 +457,11 @@ save_ggplot <- function(plot, file, width = 8, height = 8, dpi = 300, device = "
   )
 }
 
-#' Generate a UMAP report with cluster statistics
-#'
+#' @title Generate UMAP Report
+#' @description Generates a comprehensive report on UMAP visualization and clustering results.
 #' @param seurat_obj Seurat object
 #' @return List containing plots and statistics
+#' @export
 generate_umap_report <- function(seurat_obj) {
   # Validate input
   if (!("seurat_clusters" %in% colnames(seurat_obj@meta.data))) {
@@ -492,13 +510,14 @@ generate_umap_report <- function(seurat_obj) {
   ))
 }
 
-#' Create a split UMAP by a metadata factor
-#'
+#' @title Create Split UMAP
+#' @description Creates a UMAP visualization split by a metadata factor for comparison.
 #' @param seurat_obj Seurat object
 #' @param split_by String metadata column to split by
 #' @param reduction String reduction to use
 #' @param ... Additional parameters to pass to DimPlot
 #' @return ggplot object
+#' @export
 create_split_umap <- function(seurat_obj, split_by, reduction = "umap", ...) {
   if (!(split_by %in% colnames(seurat_obj@meta.data))) {
     return(ggplot() + 
@@ -514,14 +533,15 @@ create_split_umap <- function(seurat_obj, split_by, reduction = "umap", ...) {
           ...)
 }
 
-#' Create a multi-panel UMAP visualization
-#'
+#' @title Create Multi-Feature UMAP
+#' @description Creates a multi-panel UMAP visualization showing expression of multiple genes.
 #' @param seurat_obj Seurat object
-#' @param features Vector of features to show
+#' @param features Vector of gene IDs to visualize
 #' @param reduction String reduction to use
-#' @param ncol Integer number of columns
+#' @param ncol Integer number of columns in the plot grid
 #' @param ... Additional parameters to pass to FeaturePlot
 #' @return ggplot object
+#' @export
 create_multi_feature_umap <- function(seurat_obj, features, reduction = "umap", ncol = 2, ...) {
   # Filter features to those available in the dataset
   valid_features <- features[features %in% rownames(seurat_obj)]
@@ -538,75 +558,4 @@ create_multi_feature_umap <- function(seurat_obj, features, reduction = "umap", 
               reduction = reduction, 
               ncol = ncol,
               ...)
-}
-
-#' Create a collapsible legend toggle UI
-#'
-#' @param ns Shiny namespace function
-#' @param items Vector of items to toggle (clusters, samples, etc.)
-#' @param input_id Base input ID to use for checkboxes
-#' @param title String title for the toggle section
-#' @param initial_state Logical whether all items should be selected initially
-#' @return Shiny UI element
-create_legend_toggle_ui <- function(ns, items, input_id, title = "Legend Options", initial_state = TRUE) {
-  if (is.null(items) || length(items) == 0) {
-    return(tags$div("No items available"))
-  }
-  
-  # Create a collapsible panel
-  dropdown_panel <- tags$div(
-    class = "panel panel-default",
-    style = "margin-bottom: 15px;",
-    
-    # Collapsible header
-    tags$div(
-      class = "panel-heading",
-      style = "cursor: pointer; padding: 8px 15px;",
-      `data-toggle` = "collapse",
-      `data-target` = paste0("#", ns(paste0(input_id, "_collapse"))),
-      tags$div(
-        style = "display: flex; justify-content: space-between; align-items: center;",
-        tags$span(tags$i(class = "fa fa-filter", style = "margin-right: 5px;"), title),
-        tags$span(class = "caret")
-      )
-    ),
-    
-    # Collapsible content 
-    tags$div(
-      id = ns(paste0(input_id, "_collapse")),
-      class = "panel-collapse collapse",
-      tags$div(
-        class = "panel-body",
-        style = "padding: 10px;",
-        
-        # Toggle buttons
-        tags$div(
-          style = "display: flex; justify-content: space-between; margin-bottom: 10px;",
-          actionButton(ns(paste0(input_id, "_select_all")), "Select All", 
-                       class = "btn-sm btn-default", 
-                       style = "flex: 1; margin-right: 5px;"),
-          actionButton(ns(paste0(input_id, "_deselect_all")), "Deselect All", 
-                       class = "btn-sm btn-default",
-                       style = "flex: 1; margin-left: 5px;")
-        ),
-        
-        # Item list with checkboxes
-        tags$div(
-          style = "max-height: 200px; overflow-y: auto; padding: 5px; border: 1px solid #ddd; border-radius: 4px;",
-          lapply(items, function(item) {
-            div(
-              style = "margin-bottom: 5px;",
-              checkboxInput(
-                ns(paste0(input_id, "_", gsub("[^a-zA-Z0-9]", "_", item))),
-                label = item,
-                value = initial_state
-              )
-            )
-          })
-        )
-      )
-    )
-  )
-  
-  return(dropdown_panel)
 }

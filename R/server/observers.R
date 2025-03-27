@@ -1,5 +1,19 @@
 # R/observers.R
 
+#' @title Setup Module Completion Observers
+#' @description Sets up reactive observers that track the completion status of all analysis steps
+#'   in the single-cell RNA-seq application. These observers update the steps_completed reactive
+#'   values which drive the application's navigation and UI state.
+#' @param steps_completed Reactive values object tracking completion status of each step
+#' @param seurat_data Reactive expression containing the initial Seurat object
+#' @param metadata_module Metadata module instance
+#' @param processed_seurat Reactive expression containing the QC-processed Seurat object
+#' @param clustered_seurat Reactive expression containing the clustered Seurat object
+#' @param de_module Differential expression module instance
+#' @param sample_management Sample management module instance
+#' @param condition_management Condition management module instance
+#' @return None (used for its side effects of setting up observers)
+#' @export
 setupObservers <- function(steps_completed, seurat_data, metadata_module, processed_seurat, 
                            clustered_seurat, de_module, sample_management, condition_management) {
   

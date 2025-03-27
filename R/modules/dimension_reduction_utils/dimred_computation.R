@@ -1,13 +1,12 @@
 # R/modules/dimension_reduction_utils/dimred_computation.R
 
-# This file contains core computational functions for dimension reduction
-# It handles PCA analysis, UMAP embedding, and clustering calculations
-
-#' Find elbow point for optimal PCA dimensions
-#'
+#' @title Find Elbow Point in PCA Variance
+#' @description Identifies the optimal dimension cutoff based on the rate of change 
+#'   in variance explained by principal components.
 #' @param x Vector of dimensions
 #' @param y Vector of variance explained
-#' @return Numeric value representing optimal dimension
+#' @return Integer representing the optimal dimension cutoff
+#' @keywords internal
 find_elbow <- function(x, y) {
   # Focus on the rate of change and look for where the rate of change stabilizes
   diffs <- diff(y) / diff(x)
@@ -23,10 +22,12 @@ find_elbow <- function(x, y) {
   return(x[elbow_idx])
 }
 
-#' Compute suggested dimensions from PCA
-#'
+#' @title Compute Suggested Dimensions from PCA
+#' @description Automatically determines the optimal number of principal components
+#'   to use for downstream analysis based on the elbow point of variance explained.
 #' @param seurat_obj Seurat object with PCA run
 #' @return Integer suggesting optimal number of PCs to use
+#' @export
 compute_suggested_dims <- function(seurat_obj) {
   # Ensure PCA has been run
   if (!("pca" %in% names(seurat_obj@reductions))) {
@@ -43,8 +44,9 @@ compute_suggested_dims <- function(seurat_obj) {
   find_elbow(dims, var_explained)
 }
 
-#' Run UMAP with specified dimensions and components
-#'
+#' @title Run UMAP with Specified Parameters
+#' @description Runs UMAP on a Seurat object with the specified parameters, creating
+#'   either 2D or 3D embeddings.
 #' @param seurat_obj Seurat object with PCA run
 #' @param n_dims Integer number of PCA dimensions to use
 #' @param n_components Integer number of UMAP dimensions (2 or 3)
@@ -52,6 +54,7 @@ compute_suggested_dims <- function(seurat_obj) {
 #' @param reduction.key String key prefix for dimension names
 #' @param ... Additional parameters to pass to RunUMAP
 #' @return Seurat object with added UMAP reduction
+#' @keywords internal
 run_umap <- function(seurat_obj, n_dims, n_components = 2, 
                      reduction.name = "umap", reduction.key = "UMAP_", ...) {
   
@@ -74,12 +77,14 @@ run_umap <- function(seurat_obj, n_dims, n_components = 2,
           ...)
 }
 
-#' Process both 2D and 3D UMAPs for a Seurat object
-#'
+#' @title Process Both 2D and 3D UMAPs
+#' @description Creates both 2D and 3D UMAP embeddings for a Seurat object
+#'   to enable different visualization options.
 #' @param seurat_obj Seurat object with PCA run
 #' @param n_dims Integer number of PCA dimensions to use
 #' @param ... Additional parameters to pass to RunUMAP
 #' @return Seurat object with both 2D and 3D UMAP reductions
+#' @export
 process_umaps <- function(seurat_obj, n_dims, ...) {
   # Run 2D UMAP
   seurat_2d <- run_umap(seurat_obj, n_dims, n_components = 2, 
@@ -97,13 +102,15 @@ process_umaps <- function(seurat_obj, n_dims, ...) {
   return(seurat_3d)
 }
 
-#' Run clustering on a Seurat object
-#'
+#' @title Run Clustering on Seurat Object
+#' @description Performs neighbor finding and clustering on a Seurat object with the 
+#'   specified parameters.
 #' @param seurat_obj Seurat object with PCA run
 #' @param n_dims Integer number of PCA dimensions to use
 #' @param resolution Numeric clustering resolution
 #' @param ... Additional parameters to pass to FindClusters
 #' @return Seurat object with clustering results
+#' @export
 run_clustering <- function(seurat_obj, n_dims, resolution = 0.5, ...) {
   # Find neighbors first
   seurat_obj <- FindNeighbors(seurat_obj, dims = 1:n_dims)
@@ -114,10 +121,12 @@ run_clustering <- function(seurat_obj, n_dims, resolution = 0.5, ...) {
   return(seurat_obj)
 }
 
-#' Get cluster statistics from a Seurat object
-#'
+#' @title Get Cluster Statistics
+#' @description Extracts statistics about clusters from a Seurat object, including
+#'   cell counts, percentages, and sample distribution.
 #' @param seurat_obj Seurat object with clustering results
 #' @return Data frame with cluster statistics
+#' @export
 get_cluster_stats <- function(seurat_obj) {
   # Check if clustering has been performed
   if (!("seurat_clusters" %in% colnames(seurat_obj@meta.data))) {
@@ -163,12 +172,14 @@ get_cluster_stats <- function(seurat_obj) {
   return(stats)
 }
 
-#' Find similar clusters across different resolutions
-#'
+#' @title Find Similar Clusters Across Resolutions
+#' @description Runs clustering at different resolutions to help identify optimal 
+#'   clustering parameters.
 #' @param seurat_obj Seurat object with PCA run
 #' @param resolution_range Vector of resolutions to test
 #' @param dims Integer vector of PCA dimensions to use
 #' @return List containing results and summary of clustering at different resolutions
+#' @export
 find_similar_clusters <- function(seurat_obj, resolution_range = seq(0.1, 1.0, by = 0.1), dims = 1:20) {
   # Validate input
   if (!("pca" %in% names(seurat_obj@reductions))) {
@@ -222,11 +233,12 @@ find_similar_clusters <- function(seurat_obj, resolution_range = seq(0.1, 1.0, b
   ))
 }
 
-#' Filter Seurat object by samples
-#'
+#' @title Filter Seurat Object by Samples
+#' @description Filters a Seurat object to include only cells from specified samples.
 #' @param seurat_obj Seurat object
 #' @param active_samples Vector of sample names to keep
 #' @return Filtered Seurat object
+#' @export
 filter_by_samples <- function(seurat_obj, active_samples) {
   # Check if we have a valid Seurat object and active samples
   if (is.null(seurat_obj) || is.null(active_samples) || length(active_samples) == 0) {
@@ -254,12 +266,13 @@ filter_by_samples <- function(seurat_obj, active_samples) {
   subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
 }
 
-#' Filter Seurat object by conditions
-#'
+#' @title Filter Seurat Object by Conditions
+#' @description Filters a Seurat object to include only cells with specified condition values.
 #' @param seurat_obj Seurat object
 #' @param condition_column String name of the condition column
 #' @param active_conditions Vector of condition values to keep
 #' @return Filtered Seurat object
+#' @export
 filter_by_conditions <- function(seurat_obj, condition_column, active_conditions) {
   # Check if we have valid inputs
   if (is.null(seurat_obj) || is.null(condition_column) || 
@@ -288,11 +301,13 @@ filter_by_conditions <- function(seurat_obj, condition_column, active_conditions
   subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
 }
 
-#' Create a marker gene heatmap for clusters
-#'
+#' @title Create Cluster Marker Heatmap
+#' @description Creates a heatmap of marker genes for each cluster to help
+#'   with identification and interpretation of clusters.
 #' @param seurat_obj Seurat object with clusters
 #' @param n_genes_per_cluster Integer number of genes per cluster
 #' @return A pheatmap object
+#' @export
 create_cluster_marker_heatmap <- function(seurat_obj, n_genes_per_cluster = 5) {
   # Check if clustering has been performed
   if (!("seurat_clusters" %in% colnames(seurat_obj@meta.data))) {

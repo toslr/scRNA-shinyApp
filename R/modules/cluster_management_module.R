@@ -1,5 +1,9 @@
-# R/modules/cluster_management_module.R
-
+#' @title Cluster Management Module UI
+#' @description Creates the UI for the cluster management module which allows users
+#'   to toggle clusters and edit cluster labels.
+#' @param id The module ID
+#' @return A Shiny UI element containing the cluster management interface
+#' @export
 clusterManagementUI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -7,6 +11,13 @@ clusterManagementUI <- function(id) {
   )
 }
 
+#' @title Cluster Management Module Server
+#' @description Server logic for the cluster management module which handles cluster
+#'   activation/deactivation and label editing.
+#' @param id The module ID
+#' @param clustered_seurat Reactive expression containing the clustered Seurat object
+#' @return A list of reactive expressions for accessing cluster labels and active status
+#' @export
 clusterManagementServer <- function(id, clustered_seurat) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -222,7 +233,15 @@ clusterManagementServer <- function(id, clustered_seurat) {
   })
 }
 
-# Helper function: Create UI controls for each cluster
+#' @title Create Cluster Controls
+#' @description Helper function that creates UI controls for each cluster,
+#'   including active/inactive toggle and label editing.
+#' @param ns Namespace function
+#' @param available_clusters Vector of available cluster IDs
+#' @param current_temp_labels Named vector of current cluster labels
+#' @param current_active Named vector of current active status (TRUE/FALSE)
+#' @return A UI element with controls for each cluster
+#' @keywords internal
 createClusterControls <- function(ns, available_clusters, current_temp_labels, current_active) {
   tagList(
     # Individual cluster controls
@@ -264,7 +283,11 @@ createClusterControls <- function(ns, available_clusters, current_temp_labels, c
   )
 }
 
-# Helper function: Get available clusters from Seurat object
+#' @title Get Available Clusters
+#' @description Helper function that extracts unique cluster IDs from a Seurat object.
+#' @param seurat_obj Seurat object containing clustered data
+#' @return Vector of unique cluster IDs, or NULL if no clusters are found
+#' @keywords internal
 getAvailableClusters <- function(seurat_obj) {
   if (is.null(seurat_obj) || !"seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
     return(NULL)

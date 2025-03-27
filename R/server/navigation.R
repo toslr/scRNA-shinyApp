@@ -1,5 +1,13 @@
 # R/navigation.R
 
+#' @title Setup Navigation Panel
+#' @description Creates and configures the dynamic navigation panel for the single-cell RNA-seq
+#'   analysis application. The navigation panel shows available analysis steps based on which
+#'   steps have been completed, allowing users to navigate between different sections of the app.
+#' @param output Shiny output object for rendering UI elements
+#' @param steps_completed Reactive values tracking which analysis steps have been completed
+#' @return None (used for its side effects of setting up the navigation UI)
+#' @export
 setupNavigation <- function(output, steps_completed) {
   # Dynamic task list
   output$taskList <- renderUI({

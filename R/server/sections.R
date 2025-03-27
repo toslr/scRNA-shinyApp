@@ -1,8 +1,22 @@
 # R/server/sections.R
 
+#' @title Setup Main Content Sections
+#' @description Sets up the main content sections of the single-cell RNA-seq analysis application.
+#'   This function configures the dynamic rendering of the metadata, quality control, dimension 
+#'   reduction, and differential expression sections based on data availability and analysis state.
+#' @param input Shiny input object
+#' @param output Shiny output object for rendering UI elements
+#' @param seurat_data Reactive expression containing the initial Seurat object
+#' @param metadata_handler Reactive expression providing access to the metadata module
+#' @param processed_seurat Reactive expression containing the QC-processed Seurat object
+#' @param clustered_seurat Reactive expression containing the clustered Seurat object
+#' @param session The current Shiny session
+#' @return None (used for its side effects of setting up UI sections)
+#' @export
 setupSections <- function(input, output, seurat_data, metadata_handler, processed_seurat, 
                           clustered_seurat, session) {
   
+  # Metadata section
   output$metadataSection <- renderUI({
     # Call the reactive function to get metadata module
     print("Checking metadata handler")

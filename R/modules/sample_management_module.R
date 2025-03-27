@@ -1,5 +1,11 @@
 # R/modules/sample_management_module.R
 
+#' @title Sample Management Module UI
+#' @description Creates the UI for the sample management module which allows users to 
+#'   toggle sample visibility and edit sample labels.
+#' @param id The module ID
+#' @return A Shiny UI element containing the sample management interface
+#' @export
 sampleManagementUI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -7,6 +13,13 @@ sampleManagementUI <- function(id) {
   )
 }
 
+#' @title Sample Management Module Server
+#' @description Server logic for the sample management module which handles sample
+#'   activation/deactivation and label editing.
+#' @param id The module ID
+#' @param seurat_data Reactive expression containing the Seurat object
+#' @return A list of reactive expressions for accessing sample labels and active status
+#' @export
 sampleManagementServer <- function(id, seurat_data) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -199,7 +212,15 @@ sampleManagementServer <- function(id, seurat_data) {
   })
 }
 
-# Helper function: Create UI controls for each sample
+#' @title Create Sample Controls
+#' @description Helper function that creates UI controls for each sample,
+#'   including active/inactive toggle and label editing.
+#' @param ns Namespace function
+#' @param available_samples Vector of available sample IDs
+#' @param current_temp_labels Named vector of current sample labels
+#' @param current_active Named vector of current active status (TRUE/FALSE)
+#' @return A UI element with controls for each sample
+#' @keywords internal
 createSampleControls <- function(ns, available_samples, current_temp_labels, current_active) {
   tagList(
     # Individual sample controls
@@ -242,7 +263,11 @@ createSampleControls <- function(ns, available_samples, current_temp_labels, cur
   )
 }
 
-# Helper function: Get available samples from Seurat object
+#' @title Get Available Samples
+#' @description Helper function that extracts unique sample IDs from a Seurat object.
+#' @param seurat_obj Seurat object 
+#' @return Vector of unique sample IDs, or NULL if no samples are found
+#' @keywords internal
 getAvailableSamples <- function(seurat_obj) {
   if (is.null(seurat_obj) || !"sample" %in% colnames(seurat_obj@meta.data)) {
     return(NULL)
@@ -250,7 +275,13 @@ getAvailableSamples <- function(seurat_obj) {
   unique(seurat_obj$sample)
 }
 
-# Initialize sample labels
+#' @title Initialize Sample Labels
+#' @description Creates default labels for samples, preserving any existing labels
+#'   from the current_labels parameter.
+#' @param samples Vector of sample IDs
+#' @param current_labels Optional named vector of existing sample labels
+#' @return A named vector mapping sample IDs to their labels
+#' @keywords internal
 initializeSampleLabels <- function(samples, current_labels = NULL) {
   new_labels <- setNames(
     samples,  # Use sample IDs as default labels
@@ -266,7 +297,12 @@ initializeSampleLabels <- function(samples, current_labels = NULL) {
   return(new_labels)
 }
 
-# Helper function to make safe HTML/Shiny IDs from GSM IDs or other sample identifiers
+#' @title Make Safe ID
+#' @description Creates a safe HTML/Shiny ID from a sample ID by replacing
+#'   special characters with underscores and ensuring it starts with a letter.
+#' @param id String value to convert to a safe ID
+#' @return String containing a safe ID for use in HTML/Shiny
+#' @keywords internal
 make_safe_id <- function(id) {
   # Replace special characters with underscores
   safe_id <- gsub("[^a-zA-Z0-9]", "_", id)
@@ -279,7 +315,33 @@ make_safe_id <- function(id) {
   return(safe_id)
 }
 
-# Filter Seurat object to include only active samples
+#' @title Initialize Active Status
+#' @description Creates a named vector indicating which samples are active (TRUE/FALSE),
+#'   with the default being all samples active. Preserves existing statuses if provided.
+#' @param samples Vector of sample IDs
+#' @param current_active Optional named vector of existing active statuses
+#' @return A named logical vector indicating which samples are active
+#' @keywords internal
+initializeActiveStatus <- function(samples, current_active = NULL) {
+  new_active <- setNames(
+    rep(TRUE, length(samples)),
+    samples
+  )
+  
+  if (!is.null(current_active)) {
+    existing_samples <- names(current_active)
+    new_active[existing_samples] <- current_active[existing_samples]
+  }
+  
+  return(new_active)
+}
+
+#' @title Filter By Samples
+#' @description Filters a Seurat object to include only cells from specified samples.
+#' @param seurat_obj Seurat object
+#' @param active_samples Vector of sample names to keep
+#' @return Filtered Seurat object
+#' @export
 filterBySamples <- function(seurat_obj, active_samples) {
   # Check if we have a valid Seurat object and active samples
   if (is.null(seurat_obj) || is.null(active_samples) || length(active_samples) == 0) {

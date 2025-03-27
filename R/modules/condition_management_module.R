@@ -1,5 +1,9 @@
-# R/modules/condition_management_module.R
-
+#' @title Condition Management Module UI
+#' @description Creates the UI for the condition management module which allows users to 
+#'   select metadata columns as conditions and toggle condition values.
+#' @param id The module ID
+#' @return A Shiny UI element containing the condition management interface
+#' @export
 conditionManagementUI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -11,6 +15,14 @@ conditionManagementUI <- function(id) {
   )
 }
 
+#' @title Condition Management Module Server
+#' @description Server logic for the condition management module which allows selecting
+#'   metadata columns as conditions and filtering data by condition values.
+#' @param id The module ID
+#' @param seurat_data Reactive expression containing the Seurat object
+#' @param metadata_module Metadata module instance for accessing metadata information
+#' @return A list of reactive expressions for accessing condition information and active status
+#' @export
 conditionManagementServer <- function(id, seurat_data, metadata_module) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -91,7 +103,9 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       updateConditionState()
     })
     
-    # Initialize or update condition management state
+    #' @title Update Condition State
+    #' @description Initialize or update condition management state based on the selected column
+    #' @keywords internal
     updateConditionState <- function() {
       column <- state$condition_column()
       if (is.null(column) || is.null(seurat_data())) return(NULL)
@@ -110,7 +124,10 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       }
     }
     
-    # Get available conditions from selected column
+    #' @title Get Available Conditions
+    #' @description Get unique condition values from the selected column
+    #' @return Vector of unique condition values or NULL if none available
+    #' @keywords internal
     getAvailableConditions <- function() {
       column <- state$condition_column()
       if (is.null(column) || is.null(seurat_data())) return(NULL)
@@ -199,7 +216,7 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       )
     })
     
-    # Also update the selectAllConditions handler to be more robust
+    # Handle selectAllConditions checkbox
     observeEvent(input$selectAllConditions, {
       available_conditions <- getAvailableConditions()
       
@@ -347,7 +364,15 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
   })
 }
 
-# Helper function: Create UI controls for each condition
+#' @title Create Condition Controls
+#' @description Helper function that creates UI controls for each condition,
+#'   including active/inactive toggle and label editing.
+#' @param ns Namespace function
+#' @param available_conditions Vector of available condition values
+#' @param current_temp_labels Named vector of current condition labels
+#' @param current_active Named vector of current active status (TRUE/FALSE)
+#' @return A UI element with controls for each condition
+#' @keywords internal
 createConditionControls <- function(ns, available_conditions, current_temp_labels, current_active) {
   tagList(
     # Individual condition controls
@@ -368,7 +393,7 @@ createConditionControls <- function(ns, available_conditions, current_temp_label
       safe_id <- make_safe_id(condition)
       
       div(
-        id = paste0("condition-row-", i),  # Add an ID for debugging
+        id = paste0("condition-row-", i),
         style = paste0(
           "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
           if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
@@ -395,7 +420,13 @@ createConditionControls <- function(ns, available_conditions, current_temp_label
   )
 }
 
-# Initialize condition labels
+#' @title Initialize Condition Labels
+#' @description Creates default labels for conditions, preserving any existing labels
+#'   from the current_labels parameter.
+#' @param conditions Vector of condition values
+#' @param current_labels Optional named vector of existing condition labels
+#' @return A named vector mapping condition values to their labels
+#' @keywords internal
 initializeConditionLabels <- function(conditions, current_labels = NULL) {
   new_labels <- setNames(
     conditions,  # Use condition values as default labels
@@ -411,7 +442,12 @@ initializeConditionLabels <- function(conditions, current_labels = NULL) {
   return(new_labels)
 }
 
-# Helper function to make safe HTML/Shiny IDs from condition values
+#' @title Make Safe ID
+#' @description Creates a safe HTML/Shiny ID from a condition value by replacing
+#'   special characters with underscores and ensuring it starts with a letter.
+#' @param id String value to convert to a safe ID
+#' @return String containing a safe ID for use in HTML/Shiny
+#' @keywords internal
 make_safe_id <- function(id) {
   # Replace special characters with underscores
   safe_id <- gsub("[^a-zA-Z0-9]", "_", id)
@@ -424,7 +460,13 @@ make_safe_id <- function(id) {
   return(safe_id)
 }
 
-# Initialize active status for conditions
+#' @title Initialize Active Status
+#' @description Creates a named vector indicating which conditions are active (TRUE/FALSE),
+#'   with the default being all conditions active. Preserves existing statuses if provided.
+#' @param conditions Vector of condition values
+#' @param current_active Optional named vector of existing active statuses
+#' @return A named logical vector indicating which conditions are active
+#' @keywords internal
 initializeActiveStatus <- function(conditions, current_active = NULL) {
   new_active <- setNames(
     rep(TRUE, length(conditions)),
@@ -439,7 +481,13 @@ initializeActiveStatus <- function(conditions, current_active = NULL) {
   return(new_active)
 }
 
-# Filter Seurat object by active conditions
+#' @title Filter By Conditions
+#' @description Filters a Seurat object to include only cells that match active conditions.
+#' @param seurat_obj Seurat object to filter
+#' @param condition_column String name of the metadata column to use for filtering
+#' @param active_conditions Vector of condition values to keep
+#' @return Filtered Seurat object
+#' @export
 filterByConditions <- function(seurat_obj, condition_column, active_conditions) {
   # Check if we have valid inputs
   if (is.null(seurat_obj) || is.null(condition_column) || 

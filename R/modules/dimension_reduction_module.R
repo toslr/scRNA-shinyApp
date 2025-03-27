@@ -1,14 +1,11 @@
 # R/modules/dimension_reduction_module.R
 
-# Source utility files
-# These will be sourced in app.R, but are listed here for reference
-# source("R/modules/dimension_reduction_utils/dimred_computation.R")
-# source("R/modules/dimension_reduction_utils/dimred_visualization.R")
-
-#' UI for dimension reduction module
-#'
-#' @param id Character ID for namespacing
-#' @return UI elements for dimension reduction
+#' @title Dimension Reduction Module UI
+#' @description Creates the UI for the dimension reduction module which allows users to 
+#'   visualize scRNA-seq data using PCA, UMAP, and clustering techniques.
+#' @param id The module ID
+#' @return A Shiny UI element containing the dimension reduction interface
+#' @export
 dimensionReductionUI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -47,13 +44,15 @@ dimensionReductionUI <- function(id) {
   )
 }
 
-#' Server function for dimension reduction module
-#'
-#' @param id Character ID for namespacing
+#' @title Dimension Reduction Module Server
+#' @description Server logic for the dimension reduction module that performs PCA, UMAP,
+#'   and clustering analyses, and creates interactive visualizations.
+#' @param id The module ID
 #' @param processed_seurat Reactive expression returning Seurat object with PCA
-#' @param sample_management Optional sample management module
-#' @param condition_management Optional condition management module
-#' @return Reactive expression returning processed Seurat object
+#' @param sample_management Optional sample management module for filtering by samples
+#' @param condition_management Optional condition management module for filtering by conditions
+#' @return Reactive expression returning the processed Seurat object with UMAP and clustering
+#' @export
 dimensionReductionServer <- function(id, processed_seurat, sample_management = NULL, condition_management = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -207,7 +206,11 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       })
     })
     
-    # Helper to get unique values for a metadata column
+    #' @title Get Unique Values
+    #' @description Helper to get unique values for a metadata column
+    #' @param column_name Name of the metadata column
+    #' @return Vector of unique values for the specified column
+    #' @keywords internal
     get_unique_values <- function(column_name) {
       req(values$clustered_seurat)
       
@@ -638,6 +641,27 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       create_item_toggles(ns, current_items, "right_items", toggle_title)
     })
     
+    #' @title Get Active Toggle Items
+    #' @description Gets the active items from toggle checkboxes
+    #' @param input Shiny input object
+    #' @param items Vector of all possible items
+    #' @param input_id Base input ID for the toggle checkboxes
+    #' @return Vector of active item values
+    #' @keywords internal
+    get_active_toggle_items <- function(input, items, input_id) {
+      active_items <- character(0)
+      
+      for (item in items) {
+        safe_id <- gsub("[^a-zA-Z0-9]", "_", item)
+        input_name <- paste0(input_id, "_", safe_id)
+        if (!is.null(input[[input_name]]) && input[[input_name]]) {
+          active_items <- c(active_items, item)
+        }
+      }
+      
+      return(active_items)
+    }
+    
     # Get active items for left plot
     get_left_active_items <- reactive({
       req(values$clustered_seurat)
@@ -679,21 +703,6 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       
       get_active_toggle_items(input, current_items, "right_items")
     })
-    
-    # Helper function to get active toggle items
-    get_active_toggle_items <- function(input, items, input_id) {
-      active_items <- character(0)
-      
-      for (item in items) {
-        safe_id <- gsub("[^a-zA-Z0-9]", "_", item)
-        input_name <- paste0(input_id, "_", safe_id)
-        if (!is.null(input[[input_name]]) && input[[input_name]]) {
-          active_items <- c(active_items, item)
-        }
-      }
-      
-      return(active_items)
-    }
     
     # Left UMAP plot functions
     output$leftUMAPPlot <- renderPlot({
@@ -873,4 +882,111 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
     # Return the clustered Seurat object
     return(reactive({ values$clustered_seurat }))
   })
+}
+
+#' @title Create Legend Toggle UI
+#' @description Creates a collapsible legend toggle UI for controlling item visibility
+#' @param ns Namespace function for creating input IDs
+#' @param items Vector of items to toggle (clusters, samples, etc.)
+#' @param input_id Base input ID to use for checkboxes
+#' @param title String title for the toggle section
+#' @param initial_state Logical whether all items should be selected initially
+#' @return Shiny UI element for the legend toggle
+#' @keywords internal
+create_legend_toggle_ui <- function(ns, items, input_id, title = "Legend Options", initial_state = TRUE) {
+  if (is.null(items) || length(items) == 0) {
+    return(tags$div("No items available"))
+  }
+  
+  # Create a collapsible panel
+  dropdown_panel <- tags$div(
+    class = "panel panel-default",
+    style = "margin-bottom: 15px;",
+    
+    # Collapsible header
+    tags$div(
+      class = "panel-heading",
+      style = "cursor: pointer; padding: 8px 15px;",
+      `data-toggle` = "collapse",
+      `data-target` = paste0("#", ns(paste0(input_id, "_collapse"))),
+      tags$div(
+        style = "display: flex; justify-content: space-between; align-items: center;",
+        tags$span(tags$i(class = "fa fa-filter", style = "margin-right: 5px;"), title),
+        tags$span(class = "caret")
+      )
+    ),
+    
+    # Collapsible content 
+    tags$div(
+      id = ns(paste0(input_id, "_collapse")),
+      class = "panel-collapse collapse",
+      tags$div(
+        class = "panel-body",
+        style = "padding: 10px;",
+        
+        # Toggle buttons
+        tags$div(
+          style = "display: flex; justify-content: space-between; margin-bottom: 10px;",
+          actionButton(ns(paste0(input_id, "_select_all")), "Select All", 
+                       class = "btn-sm btn-default", 
+                       style = "flex: 1; margin-right: 5px;"),
+          actionButton(ns(paste0(input_id, "_deselect_all")), "Deselect All", 
+                       class = "btn-sm btn-default",
+                       style = "flex: 1; margin-left: 5px;")
+        ),
+        
+        # Item list with checkboxes
+        tags$div(
+          style = "max-height: 200px; overflow-y: auto; padding: 5px; border: 1px solid #ddd; border-radius: 4px;",
+          lapply(items, function(item) {
+            div(
+              style = "margin-bottom: 5px;",
+              checkboxInput(
+                ns(paste0(input_id, "_", gsub("[^a-zA-Z0-9]", "_", item))),
+                label = item,
+                value = initial_state
+              )
+            )
+          })
+        )
+      )
+    )
+  )
+  
+  return(dropdown_panel)
+}
+
+#' @title Create Item Toggles
+#' @description Creates a set of checkboxes for toggling items
+#' @param ns Namespace function for creating input IDs
+#' @param items Vector of items to toggle (clusters, samples, etc.)
+#' @param input_id Base input ID to use for checkboxes
+#' @param title String title for the toggle section
+#' @return Shiny UI element for the item toggles
+#' @keywords internal
+create_item_toggles <- function(ns, items, input_id, title = "Toggle Items") {
+  if (is.null(items) || length(items) == 0) {
+    return(tags$div("No items available"))
+  }
+  
+  tags$div(
+    tags$h5(title),
+    tags$div(
+      style = "display: flex; justify-content: space-between; margin-bottom: 10px;",
+      actionButton(ns(paste0(input_id, "_select_all")), "Select All", 
+                   class = "btn-sm btn-default"),
+      actionButton(ns(paste0(input_id, "_deselect_all")), "Deselect All", 
+                   class = "btn-sm btn-default")
+    ),
+    tags$div(
+      style = "max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 8px;",
+      lapply(items, function(item) {
+        checkboxInput(
+          ns(paste0(input_id, "_", gsub("[^a-zA-Z0-9]", "_", item))),
+          label = item,
+          value = TRUE
+        )
+      })
+    )
+  )
 }

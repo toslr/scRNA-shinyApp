@@ -1,5 +1,10 @@
 # R/server.R
 
+#' @title Build Application Server
+#' @description Constructs the complete server logic for the single-cell RNA-seq analysis application,
+#'   initializing all modules and establishing reactive data flow between components.
+#' @return A Shiny server function that defines the reactive behavior of the application
+#' @export
 buildServer <- function() {
   function(input, output, session) {
     print("Starting server initialization")
@@ -20,10 +25,11 @@ buildServer <- function() {
       data_input()
     })
     
+    # Initialize management modules
     sample_management <- sampleManagementServer("sampleManagement", seurat_data)
     condition_management <- conditionManagementServer("conditionManagement", seurat_data, metadata_module)
     
-    # Chain the reactive values through the modules
+    # Chain the reactive values through the analysis modules
     processed_seurat <- qcServer("qc", seurat_data)
     clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat, sample_management, condition_management)
     
@@ -53,16 +59,18 @@ buildServer <- function() {
                                       steps_completed,
                                       session)
     
+    # Handle loaded analysis data
     observe({
       data <- loaded_analysis()
       if (is.null(data)) return()
       
       # Update your data modules with the loaded data
       if (!is.null(data$seurat_data)) {
-        data_input(data$seurat_data)  # Here data_input is the reactiveVal that seurat_data depends on
+        data_input(data$seurat_data)  # Update the reactive value that seurat_data depends on
       }
     })
     
+    # Render cluster controls UI
     output$clusterControls <- renderUI({
       has_clustered <- !is.null(clustered_seurat())
       has_clusters <- FALSE
@@ -74,7 +82,7 @@ buildServer <- function() {
           print(paste("Error checking for clusters:", e$message))
         })
       }
-
+      
       if (!has_clustered || !has_clusters) {
         return(div(
           class = "alert alert-info",
@@ -97,6 +105,7 @@ buildServer <- function() {
       )
     })
     
+    # Render sample controls UI
     output$sampleControls <- renderUI({
       has_samples <- !is.null(seurat_data())
       has_available_samples <- FALSE
@@ -173,18 +182,17 @@ buildServer <- function() {
       }
     })
     
-    # Setup observers
+    # Setup observers for tracking module completion status
     setupObservers(steps_completed, seurat_data, metadata_module, processed_seurat, 
                    clustered_seurat, de_module, sample_management, condition_management)
     
-    # Setup sections
+    # Setup dynamic section rendering
     setupSections(input, output, seurat_data, metadata_handler, processed_seurat, 
                   clustered_seurat, session)
     
-    # Setup navigation
+    # Setup navigation panel
     setupNavigation(output, steps_completed)
     
-
     print("Server initialization complete")
   }
 }
