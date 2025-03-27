@@ -13,6 +13,19 @@ function scrollToSection(sectionId) {
   });
 }
 
+$(document).on('change', '.condition-management-checkbox', function() {
+  // Get the checkbox state
+  var isChecked = $(this).prop('checked');
+  
+  // Get the input ID from the DOM
+  var inputId = $(this).attr('id');
+  
+  // Delay the Shiny value update slightly to avoid race conditions
+  setTimeout(function() {
+    Shiny.setInputValue(inputId, isChecked);
+  }, 10);
+});
+
 // Initialize collapsible sidebar sections when the document is ready
 $(document).ready(function() {
   // Set up click handlers for collapsible sections
@@ -41,4 +54,24 @@ $(document).ready(function() {
       section.scrollIntoView({ behavior: 'smooth' });
     }
   };
+  
+  // Monitor for new condition checkboxes being added to the DOM
+  const observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+      if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+        // Check if any condition checkboxes were added
+        const checkboxes = $(mutation.addedNodes).find('input[id^="conditionManagement-active_"]');
+        if (checkboxes.length > 0) {
+          // Add our special class to these checkboxes for the event handler
+          checkboxes.addClass('condition-management-checkbox');
+        }
+      }
+    });
+  });
+  
+  // Start observing the document body for changes
+  observer.observe(document.body, { 
+    childList: true, 
+    subtree: true 
+  });
 });

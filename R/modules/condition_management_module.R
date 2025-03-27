@@ -3,8 +3,11 @@
 conditionManagementUI <- function(id) {
   ns <- NS(id)
   tagList(
-    uiOutput(ns("conditionSelector")),
-    uiOutput(ns("conditionRows"))
+    tags$div(
+      class = "condition-management-container",
+      uiOutput(ns("conditionSelector")),
+      uiOutput(ns("conditionRows"))
+    )
   )
 }
 
@@ -196,52 +199,82 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       )
     })
     
-    # Handle Select All checkbox
+    # Also update the selectAllConditions handler to be more robust
     observeEvent(input$selectAllConditions, {
       available_conditions <- getAvailableConditions()
+      
+      # Skip if no conditions available
       if (is.null(available_conditions) || length(available_conditions) == 0) {
         return(NULL)
       }
       
+      # Get current active status
       current_active <- state$active_conditions()
+      if (is.null(current_active)) {
+        # Initialize if not already done
+        current_active <- setNames(
+          rep(TRUE, length(available_conditions)),
+          available_conditions
+        )
+      }
+      
+      # Update all conditions at once
       for (condition in available_conditions) {
         current_active[condition] <- input$selectAllConditions
       }
+      
+      # Save the updated status
       state$active_conditions(current_active)
-    })
+      
+      # Also update the individual checkboxes in the UI
+      for (condition in available_conditions) {
+        input_id <- paste0("active_", make_safe_id(condition))
+        updateCheckboxInput(session, input_id, value = input$selectAllConditions)
+      }
+    }, ignoreInit = TRUE)
     
     # Handle active status updates for individual conditions
     observe({
       available_conditions <- getAvailableConditions()
       
-      # Skip empty conditions
+      # Skip if no conditions available
       if (is.null(available_conditions) || length(available_conditions) == 0) {
         return(NULL)
       }
       
-      lapply(available_conditions, function(condition) {
-        input_id <- paste0("active_", make_safe_id(condition))
-        
-        # Only observe if this input exists
-        if (!is.null(input[[input_id]])) {
+      # Get current active status
+      current_active <- state$active_conditions()
+      if (is.null(current_active)) {
+        return(NULL)
+      }
+      
+      # Create separate observers for each condition checkbox
+      for (condition in available_conditions) {
+        local({
+          local_condition <- condition
+          input_id <- paste0("active_", make_safe_id(local_condition))
+          
+          # Create a separate observer for each checkbox
+          # This isolates the reactivity for each checkbox
           observeEvent(input[[input_id]], {
-            current_active <- state$active_conditions()
-            if (is.null(current_active)) {
-              return(NULL)
-            }
+            # Important: Get the fresh copy of the active status each time
+            updated_active <- state$active_conditions()
             
-            # Check if this condition exists in our active_conditions
-            if (condition %in% names(current_active)) {
-              current_active[condition] <- input[[input_id]]
-              state$active_conditions(current_active)
+            # Update just this condition
+            if (local_condition %in% names(updated_active)) {
+              updated_active[local_condition] <- input[[input_id]]
+              state$active_conditions(updated_active)
               
-              # Update select all checkbox based on all condition checkboxes
-              all_selected <- all(unlist(current_active))
-              updateCheckboxInput(session, "selectAllConditions", value = all_selected)
+              # Update select all checkbox
+              updateCheckboxInput(
+                session, 
+                "selectAllConditions", 
+                value = all(unlist(updated_active))
+              )
             }
           }, ignoreInit = TRUE)
-        }
-      })
+        })
+      }
     })
     
     # Update label_inputs when text changes
@@ -318,7 +351,8 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
 createConditionControls <- function(ns, available_conditions, current_temp_labels, current_active) {
   tagList(
     # Individual condition controls
-    lapply(available_conditions, function(condition) {
+    lapply(seq_along(available_conditions), function(i) {
+      condition <- available_conditions[i]
       is_active <- if (!is.null(current_active) && condition %in% names(current_active)) {
         current_active[[condition]]
       } else {
@@ -334,15 +368,19 @@ createConditionControls <- function(ns, available_conditions, current_temp_label
       safe_id <- make_safe_id(condition)
       
       div(
+        id = paste0("condition-row-", i),  # Add an ID for debugging
         style = paste0(
           "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
           if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
         ),
         fluidRow(
           column(2,
-                 checkboxInput(ns(paste0("active_", safe_id)), 
-                               label = "",
-                               value = is_active)
+                 tags$div(
+                   class = "condition-checkbox-container",
+                   checkboxInput(ns(paste0("active_", safe_id)), 
+                                 label = "",
+                                 value = is_active)
+                 )
           ),
           column(10, 
                  tags$div(

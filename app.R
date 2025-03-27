@@ -18,9 +18,15 @@ library(htmlwidgets)
 library(RColorBrewer)
 library(fontawesome)
 
+# Source metadata module
+source("R/modules/metadata_module.R")
+
 # Source data input
 source("R/modules/data_input_module.R")
 source("R/modules/data_input_utils/geo_data_utils.R")
+
+# Source qc module
+source("R/modules/qc_module.R")
 
 # Source dimred
 source("R/modules/dimension_reduction_module.R")
@@ -33,17 +39,15 @@ source("R/modules/de_analysis_utils/de_computation.R")
 source("R/modules/de_analysis_utils/visualization.R")
 source("R/modules/de_analysis_utils/ui_components.R")
 
-#source other modules
-source("R/modules/metadata_module.R")
-
-source("R/modules/qc_module.R")
-source("R/modules/dimension_reduction_module.R")
+# Source save/load module
 source("R/modules/save_load_module.R")
+
+# Source management modules
 source("R/modules/cluster_management_module.R")
 source("R/modules/sample_management_module.R")
 source("R/modules/condition_management_module.R")
 
-# Source server files
+# Source server
 source("R/server/observers.R")
 source("R/server/navigation.R")
 source("R/server/sections.R")

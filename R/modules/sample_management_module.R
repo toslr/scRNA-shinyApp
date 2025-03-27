@@ -278,3 +278,31 @@ make_safe_id <- function(id) {
   
   return(safe_id)
 }
+
+# Filter Seurat object to include only active samples
+filterBySamples <- function(seurat_obj, active_samples) {
+  # Check if we have a valid Seurat object and active samples
+  if (is.null(seurat_obj) || is.null(active_samples) || length(active_samples) == 0) {
+    return(seurat_obj)
+  }
+  
+  # Check if sample column exists
+  if (!"sample" %in% colnames(seurat_obj@meta.data)) {
+    warning("Sample column not found in Seurat object metadata")
+    return(seurat_obj)
+  }
+  
+  # Get cells that belong to active samples
+  cells_to_keep <- seurat_obj$sample %in% active_samples
+  
+  # Only subset if necessary
+  if (all(cells_to_keep)) {
+    return(seurat_obj)  # All cells are already active
+  } else if (!any(cells_to_keep)) {
+    warning("No cells match the active samples selection")
+    return(seurat_obj)  # Return original to avoid empty object
+  }
+  
+  # Subset the Seurat object
+  subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+}
