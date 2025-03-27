@@ -1,5 +1,9 @@
-# R/modules/data_input_module.R
-
+#' @title Data Input Module UI
+#' @description Creates the UI for data input which allows users to select and
+#'   process scRNA-seq data directories.
+#' @param id The module ID
+#' @return A Shiny UI element containing the data input interface
+#' @export
 dataInputUI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -14,6 +18,14 @@ dataInputUI <- function(id) {
   )
 }
 
+#' @title Data Input Module Server
+#' @description Server logic for the data input module which loads and processes 
+#'   scRNA-seq data files into Seurat objects.
+#' @param id The module ID
+#' @param volumes Volumes configuration for directory selection, defaults to Home desktop
+#' @param metadata_module Metadata module instance to access selected samples and annotations
+#' @return A reactive expression containing the processed Seurat object
+#' @export
 dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), metadata_module) {
   moduleServer(id, function(input, output, session) {
     # Create reactive values
@@ -37,7 +49,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
       req(metadata_module$selectedSamples())
       
       selected_samples <- metadata_module$selectedSamples()
-      print(paste("Processing samples:", paste(selected_samples, collapse=", ")))
       
       withProgress(message = 'Reading data...', value = 0, {
         tryCatch({
@@ -50,7 +61,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           
           # Get all available files
           all_files <- list.files(selected_dir(), pattern="\\.txt\\.gz$")
-          print(paste("Available files:", paste(all_files, collapse=", ")))
           
           # Only process selected GSMs
           selected_files <- character(0)
@@ -58,7 +68,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           for(gsm in selected_samples) {
             pattern <- paste0("^", gsm)
             matches <- grep(pattern, all_files, value=TRUE)
-            print(paste("Found matches:", paste(matches, collapse=", ")))
             selected_files <- c(selected_files, matches)
             for(match in matches) {
               file_to_gsm[[match]] <- gsm
@@ -84,9 +93,7 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
             
             if(length(data) > 0 && !is.null(data[[1]])) {
               gsm <- file_to_gsm[[file]]
-              print(paste("Creating Seurat object for GSM:", gsm))
               seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
-              print("Created Seurat object")
               seurat$sample <- gsm
               
               # Add GEO metadata if available
@@ -110,7 +117,6 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           
           # If multiple objects, merge them
           if(length(seurat_objects) > 1) {
-            print("Merging Seurat objects...")
             gene_mapping_to_preserve <- seurat_objects[[1]]@misc$gene_mapping
             final_seurat <- merge(seurat_objects[[1]], 
                                   y = seurat_objects[2:length(seurat_objects)],
@@ -123,12 +129,10 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           }
           
           # Store the object
-          print("Storing final Seurat object...")
           seurat_obj(final_seurat)
           
         }, error = function(e) {
-          print(paste("Error in data processing:", e$message))
-          print(traceback())
+          showNotification(paste("Error in data processing:", e$message), type = "error")
         })
       })
     })

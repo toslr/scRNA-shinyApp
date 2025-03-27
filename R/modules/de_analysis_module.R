@@ -1,5 +1,9 @@
-# R/modules/de_analysis_module/de_analysis_module.R
-
+#' @title Differential Expression Analysis Module UI
+#' @description Creates the UI for the differential expression analysis module, allowing users to 
+#'   compare gene expression between clusters and visualize results.
+#' @param id The module ID
+#' @return A Shiny UI element containing the DE analysis interface
+#' @export
 deAnalysisUI <- function(id) {
   ns <- NS(id)
   
@@ -9,6 +13,14 @@ deAnalysisUI <- function(id) {
   )
 }
 
+#' @title Differential Expression Analysis Module Server
+#' @description Server logic for the DE analysis module that performs differential expression 
+#'   analysis between clusters and generates visualizations.
+#' @param id The module ID
+#' @param clustered_seurat Reactive expression containing the clustered Seurat object
+#' @param cluster_management Cluster management module instance for accessing active clusters
+#' @return A list of reactive expressions containing DE results and status
+#' @export
 deAnalysisServer <- function(id, clustered_seurat, cluster_management) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -32,7 +44,10 @@ deAnalysisServer <- function(id, clustered_seurat, cluster_management) {
   })
 }
 
-# Module state initialization function
+#' @title Setup Module Reactive State
+#' @description Initializes the reactive state for the DE analysis module.
+#' @return A list of reactive values to store module state
+#' @keywords internal
 setupReactiveState <- function() {
   # Initialize state
   list(
@@ -49,7 +64,13 @@ setupReactiveState <- function() {
   )
 }
 
-# Setup Analysis UI
+#' @title Setup Analysis UI
+#' @description Creates the UI for differential expression analysis based on available clusters.
+#' @param ns Namespace function
+#' @param clustered_seurat Reactive expression containing the clustered Seurat object
+#' @param cluster_management Cluster management module instance
+#' @return UI elements for DE analysis
+#' @keywords internal
 setupAnalysisUI <- function(ns, clustered_seurat, cluster_management) {
   if (is.null(cluster_management)) {
     return(div(
@@ -86,7 +107,15 @@ setupAnalysisUI <- function(ns, clustered_seurat, cluster_management) {
   createAnalysisUI(ns, cluster_choices)
 }
 
-# Setup analysis handlers and results UI
+#' @title Setup Analysis Handlers
+#' @description Sets up event handlers and renders outputs for DE analysis.
+#' @param input Shiny input object
+#' @param output Shiny output object
+#' @param clustered_seurat Reactive expression containing the clustered Seurat object
+#' @param cluster_management Cluster management module instance
+#' @param state Reactive state list
+#' @param session Shiny session object
+#' @keywords internal
 setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_management, state, session) {
   ns <- session$ns
   # Helper to clear state when starting a new analysis
@@ -119,7 +148,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       return(NULL)
     }
     
-    print("Running one vs all analysis")
     clear_state("one_vs_all")
     
     # Run DE analysis
@@ -141,7 +169,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       return(NULL)
     }
     
-    print("Running pairwise analysis")
     clear_state("pairwise")
     
     # Run pairwise analysis
@@ -167,7 +194,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       return(NULL)
     }
     
-    print("Running general heatmap analysis")
     clear_state("general_heatmap")
     
     # Run general heatmap analysis
@@ -271,9 +297,8 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     if (!is.null(cluster_management)) {
       tryCatch({
         cluster_labels <- cluster_management$getClusterLabels()
-        print("Got cluster labels from cluster_management")
       }, error = function(e) {
-        print(paste("Error getting cluster labels from cluster_management:", e$message))
+        # Fallback to default labels if error
       })
     }
     
@@ -283,19 +308,16 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
         # Make sure to extract the value if it's a reactive
         if (is.function(state$cluster_labels)) {
           cluster_labels <- state$cluster_labels()
-          print("Got cluster labels from state")
         } else {
           cluster_labels <- state$cluster_labels
-          print("Using state cluster labels directly")
         }
       }, error = function(e) {
-        print(paste("Error getting cluster labels from state:", e$message))
+        # Continue with null if error
       })
     }
     
     # Final fallback to default labels if still null
     if (is.null(cluster_labels)) {
-      print("Creating default cluster labels for heatmap")
       unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
       cluster_labels <- setNames(
         paste("Cluster", unique_clusters),
@@ -311,13 +333,11 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
         NULL
       }
     }, error = function(e) {
-      print(paste("Error getting active cluster list:", e$message))
       NULL
     })
     
     # Now call the function with robust error handling
     tryCatch({
-      print("Calling createExpressionHeatmap")
       createExpressionHeatmap(
         clustered_seurat(),
         state$heatmap_data(),
@@ -325,7 +345,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
         active_clusters
       )
     }, error = function(e) {
-      print(paste("Error in createExpressionHeatmap:", e$message))
       # Return a simple error message plot
       ggplot() + 
         annotate("text", x = 0.5, y = 0.5, 
@@ -347,7 +366,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
         NULL
       }
     }, error = function(e) {
-      print(paste("Error getting active cluster list:", e$message))
       NULL
     })
     
@@ -365,9 +383,8 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     if (!is.null(cluster_management)) {
       tryCatch({
         cluster_labels <- cluster_management$getClusterLabels()
-        print("Got cluster labels from cluster_management for general heatmap")
       }, error = function(e) {
-        print(paste("Error getting cluster labels from cluster_management for general heatmap:", e$message))
+        # Continue with null if error
       })
     }
     
@@ -381,7 +398,7 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
           cluster_labels <- state$cluster_labels
         }
       }, error = function(e) {
-        print(paste("Error getting cluster labels from state for general heatmap:", e$message))
+        # Continue with null if error
       })
     }
     
@@ -404,7 +421,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
         state$general_heatmap_clusters()
       )
     }, error = function(e) {
-      print(paste("Error in createGeneralHeatmap:", e$message))
       # Return a simple error message plot
       ggplot() + 
         annotate("text", x = 0.5, y = 0.5, 
@@ -426,10 +442,17 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
   setupHeatmapDownloadHandlers(output, state, clustered_seurat, active_cluster_list)
 }
 
-# Run One vs All DE analysis
+#' @title Run One vs All DE Analysis
+#' @description Performs differential expression analysis comparing one cluster against all others.
+#' @param seurat_obj Seurat object containing the clustered data
+#' @param target_cluster Target cluster to compare against others
+#' @param active_clusters List of active clusters to include in analysis
+#' @param state Reactive state list
+#' @param cluster_management Cluster management module instance
+#' @keywords internal
 runOneVsAllAnalysis <- function(seurat_obj, target_cluster, active_clusters, state, cluster_management) {
   withProgress(message = 'Computing one vs all differential expression...', {
-    # Subset to active clusters - fix: seurat_obj is an object, not a function
+    # Subset to active clusters
     active_cells <- seurat_obj$seurat_clusters %in% active_clusters
     seurat_subset <- subset(seurat_obj, cells = colnames(seurat_obj)[active_cells])
     
@@ -458,15 +481,19 @@ runOneVsAllAnalysis <- function(seurat_obj, target_cluster, active_clusters, sta
     state$de_status("completed")
     state$heatmap_data(NULL)
     state$heatmap_type(NULL)
-    
-    print("One vs all analysis completed")
   })
 }
 
-# Run Pairwise DE analysis
+#' @title Run Pairwise DE Analysis
+#' @description Performs differential expression analysis comparing two specific clusters.
+#' @param seurat_obj Seurat object containing the clustered data
+#' @param cluster1 First cluster for comparison
+#' @param cluster2 Second cluster for comparison
+#' @param state Reactive state list
+#' @param cluster_management Cluster management module instance
+#' @keywords internal
 runPairwiseAnalysis <- function(seurat_obj, cluster1, cluster2, state, cluster_management) {
   withProgress(message = 'Computing pairwise differential expression...', {
-    # Fix: seurat_obj is an object, not a function
     de_results <- performDEanalysis(
       seurat_obj, 
       cluster1, 
@@ -491,12 +518,16 @@ runPairwiseAnalysis <- function(seurat_obj, cluster1, cluster2, state, cluster_m
     state$de_status("completed")
     state$heatmap_data(NULL)
     state$heatmap_type(NULL)
-    
-    print("Pairwise analysis completed")
   })
 }
 
-# Run General Heatmap analysis
+#' @title Run General Heatmap Analysis
+#' @description Generates a heatmap of top marker genes for each cluster.
+#' @param seurat_obj Seurat object containing the clustered data
+#' @param active_clusters List of active clusters to include in analysis
+#' @param genes_per_cluster Number of top genes to include per cluster
+#' @param state Reactive state list
+#' @keywords internal
 runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_cluster, state) {
   if (length(active_clusters) == 0) {
     showNotification("No active clusters selected.", type = "warning")
@@ -517,15 +548,13 @@ runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_clu
         if (!is.null(state$cluster_labels) && is.function(state$cluster_labels)) {
           tryCatch({
             cluster_labels <- state$cluster_labels()
-            print("Got cluster labels from state")
           }, error = function(e) {
-            print(paste("Error getting cluster labels from state:", e$message))
+            # Continue with null if error
           })
         }
         
         # Create default labels if needed
         if (is.null(cluster_labels)) {
-          print("Creating default cluster labels for general heatmap computation")
           unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
           cluster_labels <- setNames(
             paste("Cluster", unique_clusters),
@@ -563,8 +592,6 @@ runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_clu
             res <- res[order(res$p_val_adj, -abs(res$avg_log2FC)), ]
             top_cluster_genes <- rownames(res)[1:min(genes_per_cluster, nrow(res))]
             all_de_results[[as.character(cluster)]] <- top_cluster_genes
-          } else {
-            print(paste("No DE genes found for cluster", cluster))
           }
         }
         
@@ -596,10 +623,8 @@ runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_clu
         state$heatmap_type("general")
         
         incProgress(1.0, detail = "Completed")
-        print("General Heatmap analysis completed")
       }, error = function(e) {
         showNotification(paste("Error computing general heatmap:", e$message), type = "error")
-        print(paste("Error in general heatmap:", e$message))
       })
     })
   } else {
@@ -609,7 +634,13 @@ runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_clu
   }
 }
 
-# Generate DE heatmap
+#' @title Generate DE Heatmap
+#' @description Generate a heatmap visualization for top differentially expressed genes.
+#' @param seurat_obj Seurat object containing the data
+#' @param top_n_genes Number of top genes to include in the heatmap
+#' @param de_results Data frame containing differential expression results
+#' @param state Reactive state list
+#' @keywords internal
 generateDEHeatmap <- function(seurat_obj, top_n_genes, de_results, state) {
   withProgress(message = 'Generating heatmap...', {
     # Ensure we don't request more genes than we have
@@ -630,7 +661,12 @@ generateDEHeatmap <- function(seurat_obj, top_n_genes, de_results, state) {
   })
 }
 
-# Render DE Results UI
+#' @title Render DE Results UI
+#' @description Creates the UI elements for displaying differential expression results.
+#' @param ns Namespace function
+#' @param state Reactive state list
+#' @return UI elements for DE results
+#' @keywords internal
 renderDEResultsUI <- function(ns, state) {
   current_state <- state$analysis_state()
   
@@ -695,7 +731,13 @@ renderDEResultsUI <- function(ns, state) {
   }
 }
 
-# Render General Heatmap UI
+#' @title Render General Heatmap UI
+#' @description Creates the UI elements for displaying the general heatmap.
+#' @param ns Namespace function
+#' @param state Reactive state list
+#' @param active_cluster_list Reactive expression containing active clusters
+#' @return UI elements for general heatmap
+#' @keywords internal
 renderGeneralHeatmapUI <- function(ns, state, active_cluster_list) {
   current_state <- state$analysis_state()
   current_genes <- state$general_heatmap_genes()
@@ -731,8 +773,14 @@ renderGeneralHeatmapUI <- function(ns, state, active_cluster_list) {
   )
 }
 
-# Setup download handlers for heatmaps
-setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active_cluster_list, cluster_management) {
+#' @title Setup Heatmap Download Handlers
+#' @description Sets up download handlers for heatmap visualizations.
+#' @param output Shiny output object
+#' @param state Reactive state list
+#' @param clustered_seurat Clustered Seurat object
+#' @param active_cluster_list Reactive expression containing active clusters
+#' @keywords internal
+setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active_cluster_list) {
   # Specific DE heatmap download
   output$downloadHeatmapPlot <- downloadHandler(
     filename = function() {
@@ -744,7 +792,29 @@ setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active
       
       # Generate the heatmap directly
       current_heatmap_data <- state$heatmap_data()
-      current_labels <- cluster_management$getClusterLabels()
+      
+      # Get cluster labels - try to get from state or use defaults
+      current_labels <- NULL
+      tryCatch({
+        if (!is.null(state$cluster_labels)) {
+          if (is.function(state$cluster_labels)) {
+            current_labels <- state$cluster_labels()
+          } else {
+            current_labels <- state$cluster_labels
+          }
+        }
+      }, error = function(e) {
+        # Continue with null if error
+      })
+      
+      if (is.null(current_labels)) {
+        unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
+        current_labels <- setNames(
+          paste("Cluster", unique_clusters),
+          as.character(unique_clusters)
+        )
+      }
+      
       active_clusters_num <- as.numeric(active_cluster_list())
       
       # For all analysis types, show expression in all active clusters
@@ -768,7 +838,27 @@ setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active
       png(file, width = 3600, height = 4200, res = 300)
       
       # Generate the heatmap directly
-      current_labels <- state$cluster_labels()
+      current_labels <- NULL
+      tryCatch({
+        if (!is.null(state$cluster_labels)) {
+          if (is.function(state$cluster_labels)) {
+            current_labels <- state$cluster_labels()
+          } else {
+            current_labels <- state$cluster_labels
+          }
+        }
+      }, error = function(e) {
+        # Continue with null if error
+      })
+      
+      if (is.null(current_labels)) {
+        unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
+        current_labels <- setNames(
+          paste("Cluster", unique_clusters),
+          as.character(unique_clusters)
+        )
+      }
+      
       current_active <- active_cluster_list()
       active_clusters_num <- as.numeric(current_active)
       ordered_genes <- state$general_heatmap_genes()
@@ -784,4 +874,378 @@ setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active
       dev.off()
     }
   )
+}
+
+# Additional helper functions for DE analysis UI components
+
+#' @title Create Analysis UI
+#' @description Creates the main UI elements for differential expression analysis.
+#' @param ns Namespace function
+#' @param cluster_choices Named vector of cluster choices for UI elements
+#' @return UI elements for DE analysis
+#' @keywords internal
+createAnalysisUI <- function(ns, cluster_choices) {
+  # Check if we have enough clusters for analysis
+  has_clusters <- length(cluster_choices) > 0
+  has_multiple_clusters <- length(cluster_choices) > 1
+  
+  tagList(
+    if (!has_clusters) {
+      # No active clusters message
+      div(
+        class = "alert alert-warning",
+        icon("exclamation-triangle"),
+        "No active clusters available. Please activate at least one cluster in the Cluster Management section above."
+      )
+    } else {
+      # Main analysis UI when clusters are available
+      fluidRow(
+        column(4,
+               wellPanel(
+                 h4("One vs All Analysis"),
+                 selectInput(ns("targetClusterAll"), 
+                             "Select cluster to compare against all others:", 
+                             choices = cluster_choices,
+                             selected = if (length(cluster_choices) > 0) cluster_choices[1] else NULL),
+                 actionButton(ns("runDEAll"), "Run One vs All DE", 
+                              class = "btn-primary",
+                              disabled = !has_clusters)
+               )
+        ),
+        column(4,
+               wellPanel(
+                 h4("One vs One Analysis"),
+                 selectInput(ns("targetCluster1"), 
+                             "Select first cluster:", 
+                             choices = cluster_choices,
+                             selected = if (length(cluster_choices) > 0) cluster_choices[1] else NULL),
+                 selectInput(ns("targetCluster2"), 
+                             "Select second cluster:", 
+                             choices = cluster_choices,
+                             selected = if (length(cluster_choices) > 1) cluster_choices[2] else cluster_choices[1]),
+                 actionButton(ns("runDEPair"), "Run Pairwise DE", 
+                              class = "btn-primary",
+                              disabled = !has_multiple_clusters)
+               )
+        ),
+        column(4,
+               wellPanel(
+                 h4("General Cluster Map"),
+                 numericInput(ns("genesPerCluster"),
+                              "Top genes per cluster:",
+                              value = 5,
+                              min = 1,
+                              max = 50),
+                 actionButton(ns("runGeneralHeatmap"), "Generate General Heatmap", 
+                              class = "btn-primary",
+                              disabled = !has_clusters)
+               )
+        )
+      )
+    },
+    
+    # Results container for One vs All and One vs One
+    div(id = ns("deResults"),
+        uiOutput(ns("deResultsUI"))
+    ),
+    # Container for general heatmap
+    div(id = ns("generalHeatmapResults"),
+        uiOutput(ns("generalHeatmapUI"))
+    )
+  )
+}
+
+# Visualization functions
+
+#' @title Create Volcano Plot
+#' @description Creates a volcano plot from differential expression results.
+#' @param results Differential expression results data frame
+#' @return A ggplot object with the volcano plot
+#' @keywords internal
+createVolcanoPlot <- function(results) {
+  ggplot(results, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
+    geom_point(aes(color = abs(avg_log2FC) > 0.25 & p_val_adj < 0.05)) +
+    scale_color_manual(values = c("grey", "red")) +
+    theme_classic() +
+    geom_vline(xintercept = c(-0.25, 0.25), linetype = "dashed") +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+    labs(title = unique(results$comparison),
+         color = "Significant") +
+    theme(legend.position = "bottom")
+}
+
+#' @title Create Expression Heatmap
+#' @description Creates a heatmap of gene expression across clusters.
+#' @param seurat_obj Seurat object containing the data
+#' @param top_genes Vector of genes to include in the heatmap
+#' @param cluster_labels Named vector of cluster labels
+#' @param active_clusters Vector of active cluster IDs
+#' @return A pheatmap object showing gene expression
+#' @keywords internal
+createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels = NULL, active_clusters = NULL) {
+  # Safety check for empty gene list
+  if (length(top_genes) == 0) {
+    # Create an empty plot with a message
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, label = "No genes to display") + 
+             theme_void())
+  }
+  
+  # Ensure cluster_labels is not a function (reactive value)
+  if (is.function(cluster_labels)) {
+    tryCatch({
+      cluster_labels <- cluster_labels()
+    }, error = function(e) {
+      cluster_labels <- NULL
+    })
+  }
+  
+  # Create default cluster labels if not provided
+  if (is.null(cluster_labels)) {
+    unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
+    cluster_labels <- setNames(
+      paste("Cluster", unique_clusters),
+      as.character(unique_clusters)
+    )
+  }
+  
+  # Subset to active clusters if provided
+  if (!is.null(active_clusters) && length(active_clusters) > 0) {
+    active_cells <- seurat_obj$seurat_clusters %in% active_clusters
+    seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[active_cells])
+  }
+  
+  # Ensure all top genes are in the Seurat object
+  genes_present <- intersect(top_genes, rownames(seurat_obj))
+  if (length(genes_present) == 0) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = "None of the selected genes are present in the dataset") + 
+             theme_void())
+  }
+  
+  # Get expression data for genes that exist in the dataset
+  expr_data <- GetAssayData(seurat_obj, slot = "data")[genes_present, , drop = FALSE]
+  
+  # Calculate cluster means
+  clusters <- seurat_obj$seurat_clusters
+  unique_clusters <- sort(unique(clusters))
+  
+  # Check if we have clusters
+  if (length(unique_clusters) == 0) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = "No clusters to display") + 
+             theme_void())
+  }
+  
+  cluster_means <- sapply(unique_clusters, function(clust) {
+    cluster_cells <- which(clusters == clust)
+    if (length(cluster_cells) > 0) {
+      rowMeans(expr_data[, cluster_cells, drop = FALSE])
+    } else {
+      rep(NA, nrow(expr_data))
+    }
+  })
+  
+  # Set column names using cluster labels
+  col_names <- sapply(unique_clusters, function(x) {
+    cluster_key <- as.character(x)
+    if (cluster_key %in% names(cluster_labels)) {
+      cluster_labels[[cluster_key]]
+    } else {
+      paste("Cluster", x)
+    }
+  })
+  colnames(cluster_means) <- col_names
+  
+  # Scale data
+  if (is.matrix(cluster_means) && nrow(cluster_means) > 1 && ncol(cluster_means) > 1) {
+    # Only scale if we have enough data
+    scaled_data <- t(scale(t(cluster_means)))
+  } else {
+    # Otherwise just use the original data
+    scaled_data <- cluster_means
+  }
+  
+  # Get gene labels
+  gene_mapping <- seurat_obj@misc$gene_mapping
+  gene_labels <- if (!is.null(gene_mapping) && all(rownames(scaled_data) %in% names(gene_mapping))) {
+    gene_mapping[rownames(scaled_data)]
+  } else {
+    rownames(scaled_data)
+  }
+  gene_labels[is.na(gene_labels)] <- rownames(scaled_data)[is.na(gene_labels)]
+  
+  # Create heatmap
+  tryCatch({
+    pheatmap(scaled_data,
+             labels_row = gene_labels,
+             labels_col = colnames(cluster_means),
+             main = paste("Expression Heatmap:", length(genes_present), "Genes"),
+             angle_col = 45,
+             fontsize_row = 10,
+             cluster_cols = FALSE,
+             treeheight_row = 0,
+             draw = TRUE)
+  }, error = function(e) {
+    # If pheatmap fails, return a ggplot error message
+    ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = paste("Error creating heatmap:", e$message)) + 
+      theme_void()
+  })
+}
+
+#' @title Create General Heatmap
+#' @description Creates a heatmap of cluster-specific marker genes.
+#' @param seurat_obj Seurat object containing the data
+#' @param genes Vector of genes to include in the heatmap
+#' @param cluster_labels Named vector of cluster labels
+#' @param active_clusters Vector of active cluster IDs
+#' @param cluster_order Optional vector specifying the order of clusters
+#' @return A pheatmap object showing cluster-specific gene expression
+#' @keywords internal
+createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels = NULL, active_clusters = NULL, cluster_order = NULL) {
+  # Safety check for empty gene list
+  if (length(genes) == 0) {
+    # Create an empty plot with a message
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, label = "No genes to display") + 
+             theme_void())
+  }
+  
+  # Ensure cluster_labels is not a function (reactive value)
+  if (is.function(cluster_labels)) {
+    tryCatch({
+      cluster_labels <- cluster_labels()
+    }, error = function(e) {
+      cluster_labels <- NULL
+    })
+  }
+  
+  # Create default cluster labels if not provided
+  if (is.null(cluster_labels)) {
+    unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
+    cluster_labels <- setNames(
+      paste("Cluster", unique_clusters),
+      as.character(unique_clusters)
+    )
+  }
+  
+  # Subset to active clusters if provided
+  if (!is.null(active_clusters) && length(active_clusters) > 0) {
+    existing_active_clusters <- intersect(active_clusters, unique(seurat_obj$seurat_clusters))
+    
+    if (length(existing_active_clusters) == 0) {
+      return(ggplot() + 
+               annotate("text", x = 0.5, y = 0.5, 
+                        label = "None of the active clusters exist in the current dataset") + 
+               theme_void())
+    }
+    
+    # Only use active clusters that actually exist
+    active_cells <- seurat_obj$seurat_clusters %in% existing_active_clusters
+    seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[active_cells])
+  }
+  
+  # Ensure all genes are in the Seurat object
+  genes_present <- intersect(genes, rownames(seurat_obj))
+  if (length(genes_present) == 0) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = "None of the selected genes are present in the dataset") + 
+             theme_void())
+  }
+  
+  # Get expression data for selected genes
+  expr_data <- GetAssayData(seurat_obj, slot = "data")[genes_present, , drop = FALSE]
+  
+  # Calculate cluster means
+  clusters <- seurat_obj$seurat_clusters
+  unique_clusters <- sort(unique(clusters))
+  
+  # Check if we have clusters
+  if (length(unique_clusters) == 0) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = "No clusters to display") + 
+             theme_void())
+  }
+  
+  # Order clusters if provided
+  if (!is.null(cluster_order) && length(cluster_order) > 0) {
+    # Convert to numeric
+    ordered_clusters <- as.numeric(cluster_order)
+    # Only use clusters that exist in our data
+    ordered_clusters <- intersect(ordered_clusters, unique_clusters)
+    # If no matching clusters (completely new set), use the default ordering
+    if (length(ordered_clusters) == 0) {
+      ordered_clusters <- unique_clusters
+    } else {
+      # Add any clusters that weren't included in the order
+      ordered_clusters <- c(ordered_clusters, setdiff(unique_clusters, ordered_clusters))
+    }
+    
+    # Replace unique_clusters with ordered version
+    unique_clusters <- ordered_clusters
+  }
+  
+  cluster_means <- sapply(unique_clusters, function(clust) {
+    cluster_cells <- which(clusters == clust)
+    if (length(cluster_cells) > 0) {
+      rowMeans(expr_data[, cluster_cells, drop = FALSE])
+    } else {
+      rep(NA, nrow(expr_data))
+    }
+  })
+  
+  # Set column names using cluster labels
+  col_names <- sapply(unique_clusters, function(x) {
+    cluster_key <- as.character(x)
+    if (cluster_key %in% names(cluster_labels)) {
+      cluster_labels[[cluster_key]]
+    } else {
+      paste("Cluster", x)
+    }
+  })
+  colnames(cluster_means) <- col_names
+  
+  # Scale data
+  if (is.matrix(cluster_means) && nrow(cluster_means) > 1 && ncol(cluster_means) > 1) {
+    # Only scale if we have enough data
+    scaled_data <- t(scale(t(cluster_means)))
+  } else {
+    # Otherwise just use the original data
+    scaled_data <- cluster_means
+  }
+  
+  # Get gene labels
+  gene_mapping <- seurat_obj@misc$gene_mapping
+  gene_labels <- if (!is.null(gene_mapping) && all(rownames(scaled_data) %in% names(gene_mapping))) {
+    gene_mapping[rownames(scaled_data)]
+  } else {
+    rownames(scaled_data)
+  }
+  gene_labels[is.na(gene_labels)] <- rownames(scaled_data)[is.na(gene_labels)]
+  
+  # Create heatmap with ordered rows (genes already ordered by cluster)
+  tryCatch({
+    pheatmap(scaled_data,
+             labels_row = gene_labels,
+             labels_col = colnames(cluster_means),
+             main = "Top Cluster-Specific Genes",
+             angle_col = 45,
+             fontsize_row = 8,
+             cluster_cols = FALSE,
+             cluster_rows = FALSE,  # Don't cluster rows to maintain diagonal pattern
+             treeheight_row = 0,
+             draw = TRUE)
+  }, error = function(e) {
+    # If pheatmap fails, return a ggplot error message
+    ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = paste("Error creating heatmap:", e$message)) + 
+      theme_void()
+  })
 }

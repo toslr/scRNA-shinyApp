@@ -1,5 +1,9 @@
-# R/modules/de_analysis_module/visualization.R
-
+#' @title Create Volcano Plot
+#' @description Creates a volcano plot visualization for differential expression results,
+#'   highlighting significantly differentially expressed genes.
+#' @param results Data frame containing differential expression results with p-values and fold changes
+#' @return A ggplot object with the volcano plot visualization
+#' @export
 createVolcanoPlot <- function(results) {
   ggplot(results, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
     geom_point(aes(color = abs(avg_log2FC) > 0.25 & p_val_adj < 0.05)) +
@@ -12,6 +16,15 @@ createVolcanoPlot <- function(results) {
     theme(legend.position = "bottom")
 }
 
+#' @title Create Expression Heatmap
+#' @description Creates a heatmap of gene expression across clusters for a set of genes.
+#'   The heatmap shows scaled expression values to highlight differential patterns.
+#' @param seurat_obj Seurat object containing the data
+#' @param top_genes Vector of gene IDs to include in the heatmap
+#' @param cluster_labels Optional named vector of cluster labels
+#' @param active_clusters Optional vector of active cluster IDs to include
+#' @return A pheatmap object visualizing the expression patterns
+#' @export
 createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels = NULL, active_clusters = NULL) {
   # Safety check for empty gene list
   if (length(top_genes) == 0) {
@@ -23,18 +36,15 @@ createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels = NULL
   
   # Ensure cluster_labels is not a function (reactive value)
   if (is.function(cluster_labels)) {
-    print("Warning: cluster_labels is a function, trying to evaluate it")
     tryCatch({
       cluster_labels <- cluster_labels()
     }, error = function(e) {
-      print(paste("Error evaluating cluster_labels:", e$message))
       cluster_labels <- NULL
     })
   }
   
   # Create default cluster labels if not provided
   if (is.null(cluster_labels)) {
-    print("Creating default cluster labels")
     unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
     cluster_labels <- setNames(
       paste("Cluster", unique_clusters),
@@ -123,7 +133,6 @@ createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels = NULL
              draw = TRUE)
   }, error = function(e) {
     # If pheatmap fails, return a ggplot error message
-    print(paste("Error in pheatmap:", e$message))
     ggplot() + 
       annotate("text", x = 0.5, y = 0.5, 
                label = paste("Error creating heatmap:", e$message)) + 
@@ -131,6 +140,17 @@ createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels = NULL
   })
 }
 
+#' @title Create General Heatmap
+#' @description Creates a cluster-specific gene expression heatmap that highlights marker genes
+#'   for each cluster. Unlike the standard expression heatmap, this preserves gene order by cluster
+#'   to help visualize cluster-specific expression patterns.
+#' @param seurat_obj Seurat object containing the data
+#' @param genes Vector of gene IDs to include in the heatmap, typically ordered by cluster
+#' @param cluster_labels Optional named vector of cluster labels
+#' @param active_clusters Optional vector of active cluster IDs to include
+#' @param cluster_order Optional vector specifying the ordering of clusters in the visualization
+#' @return A pheatmap object visualizing the cluster-specific gene expression
+#' @export
 createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels = NULL, active_clusters = NULL, cluster_order = NULL) {
   # Safety check for empty gene list
   if (length(genes) == 0) {
@@ -142,18 +162,15 @@ createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels = NULL, activ
   
   # Ensure cluster_labels is not a function (reactive value)
   if (is.function(cluster_labels)) {
-    print("Warning: cluster_labels is a function in createGeneralHeatmap, trying to evaluate it")
     tryCatch({
       cluster_labels <- cluster_labels()
     }, error = function(e) {
-      print(paste("Error evaluating cluster_labels:", e$message))
       cluster_labels <- NULL
     })
   }
   
   # Create default cluster labels if not provided
   if (is.null(cluster_labels)) {
-    print("Creating default cluster labels in createGeneralHeatmap")
     unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
     cluster_labels <- setNames(
       paste("Cluster", unique_clusters),
@@ -271,7 +288,6 @@ createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels = NULL, activ
              draw = TRUE)
   }, error = function(e) {
     # If pheatmap fails, return a ggplot error message
-    print(paste("Error in pheatmap:", e$message))
     ggplot() + 
       annotate("text", x = 0.5, y = 0.5, 
                label = paste("Error creating heatmap:", e$message)) + 

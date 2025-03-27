@@ -1,5 +1,10 @@
-# R/modules/de_analysis_module/ui_components.R
-
+#' @title Create Analysis UI
+#' @description Creates the user interface components for differential expression analysis,
+#'   including one vs all analysis, one vs one analysis, and general heatmap controls.
+#' @param ns Namespace function for the module
+#' @param cluster_choices Named vector of cluster choices for select inputs
+#' @return A tagList containing the DE analysis UI components
+#' @export
 createAnalysisUI <- function(ns, cluster_choices) {
   # Check if we have enough clusters for analysis
   has_clusters <- length(cluster_choices) > 0

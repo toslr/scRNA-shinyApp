@@ -1,5 +1,9 @@
-# R/modules/qc_module.R
-
+#' @title Quality Control Module UI
+#' @description Creates the UI for the quality control module which allows users to 
+#'   visualize and filter scRNA-seq data based on quality metrics.
+#' @param id The module ID
+#' @return A Shiny UI element containing the QC interface
+#' @export
 qcUI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -19,6 +23,12 @@ qcUI <- function(id) {
   )
 }
 
+#' @title Quality Control Module Server
+#' @description Server logic for the QC module that processes data filtering and visualization.
+#' @param id The module ID
+#' @param seurat_data Reactive expression containing the Seurat object
+#' @return A reactive expression containing the processed and filtered Seurat object
+#' @export
 qcServer <- function(id, seurat_data) {
   moduleServer(id, function(input, output, session) {
     
@@ -82,8 +92,11 @@ qcServer <- function(id, seurat_data) {
   })
 }
 
-# Helper Functions
-
+#' @title Get Samples to Plot
+#' @description Selects a subset of samples to display in QC plots (limits to first 5 if more exist).
+#' @param seurat_obj Seurat object containing the data
+#' @return A Seurat object with only the selected samples
+#' @keywords internal
 getSamplesToPlot <- function(seurat_obj) {
   all_samples <- unique(seurat_obj$sample)
   if (length(all_samples) > 5) {
@@ -94,6 +107,11 @@ getSamplesToPlot <- function(seurat_obj) {
   return(seurat_obj)
 }
 
+#' @title Create QC Plot
+#' @description Creates violin plots for key QC metrics (feature count, UMI count, mitochondrial percentage).
+#' @param seurat_obj Seurat object to visualize
+#' @return A ggplot object with violin plots for QC metrics
+#' @keywords internal
 createQCPlot <- function(seurat_obj) {
   VlnPlot(seurat_obj, 
           features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
@@ -101,19 +119,28 @@ createQCPlot <- function(seurat_obj) {
           ncol = 3)
 }
 
+#' @title Save QC Plot
+#' @description Saves the QC plot to a file with error handling.
+#' @param file File path to save to
+#' @param plot The plot to save
+#' @return None
+#' @keywords internal
 saveQCPlot <- function(file, plot) {
   tryCatch({
     ggsave(file, plot = plot, device = "png", width = 12, height = 8, dpi = 300)
   }, error = function(e) {
-    print(paste("Error using ggsave:", e$message))
-    print("Trying alternative saving method...")
-    
+    # Fallback to base R graphics if ggsave fails
     png(file, width = 12, height = 8, units = "in", res = 300)
     print(plot)
     dev.off()
   })
 }
 
+#' @title Create Filter Controls
+#' @description Creates UI elements for filtering the Seurat object based on QC metrics.
+#' @param session The current Shiny session
+#' @return A UI element with filter controls
+#' @keywords internal
 createFilterControls <- function(session) {
   ns <- session$ns
   tagList(
@@ -131,6 +158,14 @@ createFilterControls <- function(session) {
   )
 }
 
+#' @title Process QC Filtering
+#' @description Filters cells based on QC metrics and runs preprocessing steps (normalization, scaling, PCA).
+#' @param seurat_obj The Seurat object to process
+#' @param min_feature Minimum feature count threshold
+#' @param max_feature Maximum feature count threshold
+#' @param max_mt Maximum mitochondrial percentage threshold
+#' @return A processed Seurat object
+#' @keywords internal
 processQCFiltering <- function(seurat_obj, min_feature, max_feature, max_mt) {
   withProgress(message = 'Processing data', value=0, {
     # Filter cells

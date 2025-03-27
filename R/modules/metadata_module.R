@@ -1,5 +1,9 @@
-# R/modules/metadata_module.R
-
+#' @title Metadata Module UI
+#' @description Creates the UI for the metadata module which allows users to input GEO
+#'   Series IDs and fetch metadata for scRNA-seq analysis.
+#' @param id The module ID
+#' @return A Shiny UI element containing the metadata input interface
+#' @export
 metadataUI <- function(id) {
   ns <- NS(id)
   
@@ -18,13 +22,18 @@ metadataUI <- function(id) {
     ),
     div(style = "margin-top: 5px;",
         verbatimTextOutput(ns("geoStatus"))
-    ),
+    )
   )
 }
 
+#' @title Metadata Module Server
+#' @description Server logic for the metadata module which fetches and processes
+#'   GEO metadata for scRNA-seq analysis.
+#' @param id The module ID
+#' @return A list of reactive expressions for accessing metadata and selected samples
+#' @export
 metadataServer <- function(id) {
   moduleServer(id, function(input, output, session) {
-    print("Initializing metadata server")
     ns <- session$ns
     
     # Initialize reactive values
@@ -33,18 +42,15 @@ metadataServer <- function(id) {
     
     # GEO metadata fetching
     observeEvent(input$fetchGEO, {
-      print("Fetch GEO button clicked")
       req(input$geoID)
       tryCatch({
         withProgress(message = 'Fetching GEO metadata...', value = 0, {
           # Fetch GEO data
           gset <- getGEO(input$geoID, GSEMatrix = TRUE)
           if (is(gset, "list")) gset <- gset[[1]]
-          print("GEO data fetched successfully")
           
           # Extract phenoData
           pheno_data <- pData(phenoData(gset))
-          print("Phenotype data extracted")
           
           # Create basic metadata dataframe
           metadata <- data.frame(
@@ -61,12 +67,8 @@ metadataServer <- function(id) {
             metadata[[col]] <- pheno_data[[col]]
           }
           
-          print("Metadata dataframe created with dimensions:")
-          print(dim(metadata))
-          
           # Store metadata
           geo_metadata(metadata)
-          print("Metadata stored in reactive value")
         })
         
         output$geoStatus <- renderText({
@@ -74,7 +76,6 @@ metadataServer <- function(id) {
         })
         
       }, error = function(e) {
-        print(paste("Error in GEO fetching:", e$message))
         output$geoStatus <- renderText({
           paste("Error fetching GEO data:", e$message)
         })
@@ -83,11 +84,8 @@ metadataServer <- function(id) {
     
     # Render metadata table
     output$metadataTable <- renderDT({
-      print("Attempting to render metadata table...")
       req(geo_metadata())
       md <- geo_metadata()
-      print("Metadata available for table:")
-      print(dim(md))
       
       # Add empty column for checkboxes
       md <- cbind(
@@ -162,14 +160,9 @@ metadataServer <- function(id) {
       selected_samples(input$selected)
     })
     
-    print("Metadata server initialization complete")
-    
     # Return reactive expressions
     list(
-      getMetadata = reactive({ 
-        print("Getting metadata from module")
-        geo_metadata() 
-      }),
+      getMetadata = reactive({ geo_metadata() }),
       selectedSamples = reactive({ selected_samples() }),
       updateMetadata = function(new_metadata) {
         geo_metadata(new_metadata)
