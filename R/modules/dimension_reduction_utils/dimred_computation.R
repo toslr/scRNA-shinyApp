@@ -1,23 +1,30 @@
 # R/modules/dimension_reduction_utils/dimred_computation.R
 
 #' @title Find Elbow Point in PCA Variance
-#' @description Identifies the optimal dimension cutoff based on the rate of change 
-#'   in variance explained by principal components.
+#' @description Identifies the optimal dimension cutoff based on the kneedle method
 #' @param x Vector of dimensions
 #' @param y Vector of variance explained
 #' @return Integer representing the optimal dimension cutoff
 #' @keywords internal
-find_elbow <- function(x, y) {
-  # Focus on the rate of change and look for where the rate of change stabilizes
-  diffs <- diff(y) / diff(x)
+find_elbow_kneedle <- function(x, y) {
+  # Normalize data to [0,1]
+  x_norm <- (x - min(x)) / (max(x) - min(x))
+  y_norm <- (y - min(y)) / (max(y) - min(y))
   
-  window_size <- 3 # Adjustable
-  rolling_std <- sapply(1:(length(diffs) - window_size), function(i) {
-    sd(diffs[i:(i + window_size)])
-  })
+  # Calculate difference between line and curve
+  # Line from first to last point
+  m <- (y_norm[length(y_norm)] - y_norm[1]) / (x_norm[length(x_norm)] - x_norm[1])
+  b <- y_norm[1] - m * x_norm[1]
   
-  threshold <- mean(rolling_std) * 0.1
-  elbow_idx <- which(rolling_std < threshold)[1]
+  # Distance from point to line
+  distance <- numeric(length(x_norm))
+  for (i in 1:length(x_norm)) {
+    # Perpendicular distance formula
+    distance[i] <- abs(m * x_norm[i] - y_norm[i] + b) / sqrt(m^2 + 1)
+  }
+  
+  # The elbow is the point with maximum distance
+  elbow_idx <- which.max(distance)
   
   return(x[elbow_idx])
 }
@@ -29,19 +36,29 @@ find_elbow <- function(x, y) {
 #' @return Integer suggesting optimal number of PCs to use
 #' @export
 compute_suggested_dims <- function(seurat_obj) {
-  # Ensure PCA has been run
-  if (!("pca" %in% names(seurat_obj@reductions))) {
-    stop("PCA has not been run on this Seurat object")
-  }
-  
   # Get variance explained
-  pca_data <- Embeddings(seurat_obj, "pca")
   stdev <- Stdev(seurat_obj[["pca"]])
   var_explained <- stdev^2 / sum(stdev^2)
+  cum_var <- cumsum(var_explained)
   
-  # Find elbow point
+  # Method 1: Knee/Elbow detection
   dims <- 1:length(var_explained)
-  find_elbow(dims, var_explained)
+  elbow_dims <- find_elbow_kneedle(dims, var_explained)
+  
+  # Method 2: Cumulative variance (80%)
+  var_dims <- min(which(cum_var >= 0.8))
+  
+  # Method 3: Minimum number of PCs (safety)
+  min_dims <- 10
+  
+  # Method 4: Maximum number of PCs (cap)
+  max_dims <- min(50, length(var_explained))
+  
+  # Take the median of the methods, within bounds
+  suggested_dims <- median(c(elbow_dims, var_dims))
+  suggested_dims <- max(min_dims, min(suggested_dims, max_dims))
+  
+  return(round(suggested_dims))
 }
 
 #' @title Run UMAP with Specified Parameters
