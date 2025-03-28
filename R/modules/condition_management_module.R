@@ -225,29 +225,14 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         return(NULL)
       }
       
-      # Get current active status
-      current_active <- state$active_conditions()
-      if (is.null(current_active)) {
-        # Initialize if not already done
-        current_active <- setNames(
-          rep(TRUE, length(available_conditions)),
-          available_conditions
-        )
-      }
+      # Create a new named vector with all conditions set to the selected state
+      new_active <- setNames(
+        rep(input$selectAllConditions, length(available_conditions)),
+        available_conditions
+      )
       
-      # Update all conditions at once
-      for (condition in available_conditions) {
-        current_active[condition] <- input$selectAllConditions
-      }
-      
-      # Save the updated status
-      state$active_conditions(current_active)
-      
-      # Also update the individual checkboxes in the UI
-      for (condition in available_conditions) {
-        input_id <- paste0("active_", make_safe_id(condition))
-        updateCheckboxInput(session, input_id, value = input$selectAllConditions)
-      }
+      # Simply update the state once
+      state$active_conditions(new_active)
     }, ignoreInit = TRUE)
     
     # Handle active status updates for individual conditions

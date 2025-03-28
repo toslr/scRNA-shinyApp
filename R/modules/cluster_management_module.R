@@ -126,6 +126,9 @@ clusterManagementServer <- function(id, clustered_seurat) {
         current_active[cluster_key] <- input$selectAllClusters
       }
       state$active_clusters(current_active)
+      for (cluster in available_clusters) {
+        updateCheckboxInput(session, paste0("active_", cluster), value = input$selectAllClusters)
+      }
     })
     
     # Handle active status updates for individual clusters

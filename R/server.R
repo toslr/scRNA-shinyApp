@@ -182,6 +182,55 @@ buildServer <- function() {
       }
     })
     
+    # Handle the condition management all conditions checkbox
+    observeEvent(input$selectAllConditions, {
+      if (is.function(condition_management$updateActiveStatus)) {
+        condition_column <- condition_management$getConditionColumn()
+        if (!is.null(condition_column) && !is.null(seurat_data())) {
+          # Get all available conditions for the selected column
+          condition_values <- unique(as.character(seurat_data()@meta.data[[condition_column]]))
+          if (length(condition_values) > 0) {
+            new_active <- setNames(
+              rep(input$selectAllConditions, length(condition_values)),
+              condition_values
+            )
+            condition_management$updateActiveStatus(new_active)
+          }
+        }
+      }
+    }, ignoreInit = TRUE)
+    
+    # Handle condition label updates button
+    observeEvent(input$updateConditionLabels, {
+      if (is.function(condition_management$getConditionLabels)) {
+        # This will trigger the module's internal update function
+        # The module handles the actual label updates
+      }
+    })
+    
+    # Handle the cluster management all clusters checkbox
+    observeEvent(input$selectAllClusters, {
+      if (is.function(cluster_management$updateActiveStatus)) {
+        clustered_obj <- clustered_seurat()
+        if (!is.null(clustered_obj) && "seurat_clusters" %in% colnames(clustered_obj@meta.data)) {
+          all_clusters <- as.character(sort(unique(clustered_obj$seurat_clusters)))
+          new_active <- setNames(
+            rep(input$selectAllClusters, length(all_clusters)),
+            all_clusters
+          )
+          cluster_management$updateActiveStatus(new_active)
+        }
+      }
+    })
+    
+    # Handle cluster label updates button
+    observeEvent(input$updateAllLabels, {
+      if (is.function(cluster_management$getClusterLabels)) {
+        # This will trigger the module's internal update function
+        # The module handles the actual label updates
+      }
+    })
+    
     # Setup observers for tracking module completion status
     setupObservers(steps_completed, seurat_data, metadata_module, processed_seurat, 
                    clustered_seurat, de_module, sample_management, condition_management)
