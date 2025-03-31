@@ -25,14 +25,15 @@ sampleManagementServer <- function(id, seurat_data) {
     ns <- session$ns
     
     # Initialize state
-    state <- list(
-      sample_labels = reactiveVal(NULL),
-      active_samples = reactiveVal(NULL),
-      temp_labels = reactiveVal(NULL),
-      label_inputs = reactiveValues()
+    # Using reactiveValues for all state elements for more stable reactivity
+    state <- reactiveValues(
+      sample_labels = NULL,
+      active_samples = NULL,
+      all_samples = NULL,
+      input_values = list()
     )
     
-    # Get samples from Seurat object
+    # Get samples from Seurat object and initialize state
     observe({
       available_samples <- getAvailableSamples(seurat_data())
       
@@ -41,226 +42,211 @@ sampleManagementServer <- function(id, seurat_data) {
         return(NULL)
       }
       
-      # Initialize or update labels if needed
-      current_labels <- state$sample_labels()
-      if (is.null(current_labels) || 
-          !all(available_samples %in% names(current_labels))) {
-        
-        new_labels <- initializeSampleLabels(available_samples, current_labels)
-        
-        state$sample_labels(new_labels)
-        state$temp_labels(new_labels)
+      # Update all_samples
+      state$all_samples <- available_samples
+      
+      # Initialize labels if needed
+      if (is.null(state$sample_labels) || !all(available_samples %in% names(state$sample_labels))) {
+        new_labels <- initializeSampleLabels(available_samples, state$sample_labels)
+        state$sample_labels <- new_labels
       }
       
       # Initialize active status if needed
-      current_active <- state$active_samples()
-      if (is.null(current_active) || 
-          !all(available_samples %in% names(current_active))) {
-        state$active_samples(initializeActiveStatus(available_samples, current_active))
+      if (is.null(state$active_samples) || !all(available_samples %in% names(state$active_samples))) {
+        state$active_samples <- initializeActiveStatus(available_samples, state$active_samples)
       }
     })
     
-    # Handle initial population when samples change
-    observeEvent(seurat_data(), {
-      available_samples <- getAvailableSamples(seurat_data())
-      
-      if (!is.null(available_samples) && length(available_samples) > 0) {
-        # Initialize new labels and active status
-        new_labels <- initializeSampleLabels(available_samples)
-        state$sample_labels(new_labels)
-        state$temp_labels(new_labels)
-        
-        new_active <- initializeActiveStatus(available_samples)
-        state$active_samples(new_active)
-      }
-    }, ignoreInit = TRUE)
-    
-    # Setup UI for sample rows
+    # Setup UI for sample rows with input tracking
     output$sampleRows <- renderUI({
-      available_samples <- getAvailableSamples(seurat_data())
-      
-      # Show message if no samples
-      if (is.null(available_samples) || length(available_samples) == 0) {
+      # Skip if no samples
+      if (is.null(state$all_samples) || length(state$all_samples) == 0) {
         return(div(
           class = "alert alert-info",
           "No samples available. Please load data first."
         ))
       }
       
-      # Get current labels and active status
-      current_temp_labels <- state$temp_labels()
-      current_active <- state$active_samples()
-      
-      # Return UI
-      createSampleControls(ns, available_samples, current_temp_labels, current_active)
+      # Generate UI controls
+      tagList(
+        lapply(state$all_samples, function(sample) {
+          safe_id <- make_safe_id(sample)
+          is_active <- if (!is.null(state$active_samples) && sample %in% names(state$active_samples)) {
+            state$active_samples[[sample]]
+          } else {
+            TRUE  # Default to active
+          }
+          
+          # Get current label with fallback options
+          current_label <- NULL
+          
+          # First check if we have a stored input value
+          input_id <- paste0("label_", safe_id)
+          if (!is.null(state$input_values[[input_id]])) {
+            current_label <- state$input_values[[input_id]]
+          } 
+          # Then check saved labels
+          else if (!is.null(state$sample_labels) && sample %in% names(state$sample_labels)) {
+            current_label <- state$sample_labels[[sample]]
+          } 
+          # Fallback to sample name
+          else {
+            current_label <- sample
+          }
+          
+          div(
+            style = paste0(
+              "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
+              if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
+            ),
+            fluidRow(
+              column(2,
+                     checkboxInput(ns(paste0("active_", safe_id)), 
+                                   label = "",
+                                   value = is_active)
+              ),
+              column(10, 
+                     tags$div(
+                       textInput(ns(paste0("label_", safe_id)),
+                                 label = NULL,
+                                 value = current_label)
+                     )
+              )
+            )
+          )
+        })
+      )
     })
     
-    # Handle Select All checkbox
-    observeEvent(input$selectAllSamples, {
-      available_samples <- getAvailableSamples(seurat_data())
-      if (is.null(available_samples) || length(available_samples) == 0) {
-        return(NULL)
-      }
-      
-      current_active <- state$active_samples()
-      for (sample in available_samples) {
-        current_active[sample] <- input$selectAllSamples
-      }
-      state$active_samples(current_active)
-    })
-    
-    # Handle active status updates for individual samples
+    # Track input values for each sample's label
     observe({
-      available_samples <- getAvailableSamples(seurat_data())
+      req(state$all_samples)
       
-      # Skip empty samples
-      if (is.null(available_samples) || length(available_samples) == 0) {
-        return(NULL)
-      }
-      
-      lapply(available_samples, function(sample) {
-        input_id <- paste0("active_", make_safe_id(sample))
+      lapply(state$all_samples, function(sample) {
+        safe_id <- make_safe_id(sample)
+        input_id <- paste0("label_", safe_id)
         
-        # Only observe if this input exists
+        # Update input_values when input changes
         if (!is.null(input[[input_id]])) {
-          observeEvent(input[[input_id]], {
-            current_active <- state$active_samples()
-            if (is.null(current_active)) {
-              return(NULL)
-            }
-            
-            # Check if this sample exists in our active_samples
-            if (sample %in% names(current_active)) {
-              current_active[sample] <- input[[input_id]]
-              state$active_samples(current_active)
-              
-              # Update select all checkbox based on all sample checkboxes
-              all_selected <- all(unlist(current_active))
-              updateCheckboxInput(session, "selectAllSamples", value = all_selected)
-            }
-          }, ignoreInit = TRUE)
+          # This isolate prevents a circular dependency
+          isolate({
+            state$input_values[[input_id]] <- input[[input_id]]
+          })
         }
       })
     })
     
-    # Update label_inputs when text changes
-    observe({
-      available_samples <- getAvailableSamples(seurat_data())
-      if (is.null(available_samples) || length(available_samples) == 0) {
-        return(NULL)
+    # Handle Select All checkbox
+    observeEvent(input$selectAllSamples, {
+      req(state$all_samples)
+      
+      # Create a new active_samples list with all samples set to the checkbox value
+      new_active <- setNames(
+        rep(input$selectAllSamples, length(state$all_samples)),
+        state$all_samples
+      )
+      
+      # Update state
+      state$active_samples <- new_active
+      
+      # Update individual checkboxes to match
+      for (sample in state$all_samples) {
+        safe_id <- make_safe_id(sample)
+        updateCheckboxInput(session, paste0("active_", safe_id), value = input$selectAllSamples)
+      }
+    })
+    
+    # Handle individual sample activation
+    lapply(1:100, function(i) { # Use a large number to handle many potential samples
+      observeEvent(input[[paste0("active_", i)]], {
+        # Find which sample this corresponds to
+        req(state$all_samples)
+        
+        matching_samples <- sapply(state$all_samples, function(sample) {
+          make_safe_id(sample) == as.character(i)
+        })
+        
+        sample_match <- state$all_samples[matching_samples]
+        
+        if (length(sample_match) == 1) {
+          # Update the active status for this sample
+          state$active_samples[[sample_match]] <- input[[paste0("active_", i)]]
+          
+          # Update "Select All" checkbox based on all samples
+          all_selected <- all(unlist(state$active_samples))
+          updateCheckboxInput(session, "selectAllSamples", value = all_selected)
+        }
+      }, ignoreNULL = TRUE, ignoreInit = TRUE)
+    })
+    
+    # Update labels when the update button is clicked
+    observeEvent(input$updateAllLabels, {
+      req(state$all_samples)
+      
+      # Collect all input values
+      for (sample in state$all_samples) {
+        safe_id <- make_safe_id(sample)
+        input_id <- paste0("label_", safe_id)
+        
+        # Only update if we have a value
+        if (!is.null(input[[input_id]])) {
+          state$sample_labels[[sample]] <- input[[input_id]]
+          state$input_values[[input_id]] <- input[[input_id]]
+        }
       }
       
-      for(sample in available_samples) {
+      showNotification("Sample labels updated", type = "message")
+    })
+    
+    # Observe individual checkbox changes
+    observe({
+      req(state$all_samples)
+      
+      for (sample in state$all_samples) {
         local({
           local_sample <- sample
-          input_id <- paste0("label_", make_safe_id(local_sample))
+          safe_id <- make_safe_id(local_sample)
+          input_id <- paste0("active_", safe_id)
           
-          # Only observe if this input exists
           if (!is.null(input[[input_id]])) {
             observeEvent(input[[input_id]], {
-              state$label_inputs[[input_id]] <- input[[input_id]]
+              # Update active status for this sample
+              state$active_samples[[local_sample]] <- input[[input_id]]
+              
+              # Update "Select All" checkbox
+              all_active <- all(unlist(state$active_samples))
+              updateCheckboxInput(session, "selectAllSamples", value = all_active)
             }, ignoreInit = TRUE)
           }
         })
       }
     })
     
-    # Update temp_labels only when update button is clicked
-    observeEvent(input$updateAllLabels, {
-      available_samples <- getAvailableSamples(seurat_data())
-      if (is.null(available_samples) || length(available_samples) == 0) {
-        return(NULL)
-      }
-      
-      current_temp <- state$temp_labels()
-      
-      for(sample in available_samples) {
-        input_id <- paste0("label_", make_safe_id(sample))
-        if(!is.null(state$label_inputs[[input_id]])) {
-          current_temp[sample] <- state$label_inputs[[input_id]]
-        }
-      }
-      
-      state$temp_labels(current_temp)
-      state$sample_labels(current_temp)
-      
-      showNotification("Sample labels updated", type = "message")
-    })
-    
     # Return reactive expressions
     list(
-      getSampleLabels = reactive({ state$sample_labels() }),
-      getActiveStatus = reactive({ state$active_samples() }),
+      getSampleLabels = reactive({ state$sample_labels }),
+      getActiveStatus = reactive({ state$active_samples }),
       getActiveSampleIds = reactive({
-        current_active <- state$active_samples()
-        if (is.null(current_active)) return(NULL)
-        names(current_active[current_active == TRUE])
+        if (is.null(state$active_samples)) return(NULL)
+        names(state$active_samples[unlist(state$active_samples) == TRUE])
       }),
       getActiveSampleList = reactive({
-        current_active <- state$active_samples()
-        if (is.null(current_active)) return(NULL)
-        names(current_active[current_active == TRUE])
+        if (is.null(state$active_samples)) return(NULL)
+        names(state$active_samples[unlist(state$active_samples) == TRUE])
       }),
       updateLabels = function(new_labels) {
-        state$sample_labels(new_labels)
-        state$temp_labels(new_labels)
+        state$sample_labels <- new_labels
+        for (sample in names(new_labels)) {
+          safe_id <- make_safe_id(sample)
+          input_id <- paste0("label_", safe_id)
+          state$input_values[[input_id]] <- new_labels[[sample]]
+        }
       },
       updateActiveStatus = function(new_active) {
-        state$active_samples(new_active)
+        state$active_samples <- new_active
       }
     )
   })
-}
-
-#' @title Create Sample Controls
-#' @description Helper function that creates UI controls for each sample,
-#'   including active/inactive toggle and label editing.
-#' @param ns Namespace function
-#' @param available_samples Vector of available sample IDs
-#' @param current_temp_labels Named vector of current sample labels
-#' @param current_active Named vector of current active status (TRUE/FALSE)
-#' @return A UI element with controls for each sample
-#' @keywords internal
-createSampleControls <- function(ns, available_samples, current_temp_labels, current_active) {
-  tagList(
-    # Individual sample controls
-    lapply(available_samples, function(sample) {
-      is_active <- if (sample %in% names(current_active)) {
-        current_active[[sample]]
-      } else {
-        TRUE  # Default to active if not found
-      }
-      
-      current_label <- if (sample %in% names(current_temp_labels)) {
-        current_temp_labels[[sample]]
-      } else {
-        sample
-      }
-      
-      safe_id <- make_safe_id(sample)
-      
-      div(
-        style = paste0(
-          "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
-          if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
-        ),
-        fluidRow(
-          column(2,
-                 checkboxInput(ns(paste0("active_", safe_id)), 
-                               label = "",
-                               value = is_active)
-          ),
-          column(10, 
-                 tags$div(
-                   textInput(ns(paste0("label_", safe_id)),
-                             label = NULL,
-                             value = current_label)
-                 )
-          )
-        )
-      )
-    })
-  )
 }
 
 #' @title Get Available Samples
@@ -291,7 +277,11 @@ initializeSampleLabels <- function(samples, current_labels = NULL) {
   # Merge with existing labels if they exist
   if (!is.null(current_labels)) {
     existing_samples <- names(current_labels)
-    new_labels[existing_samples] <- current_labels[existing_samples]
+    for (sample in existing_samples) {
+      if (sample %in% names(new_labels)) {
+        new_labels[sample] <- current_labels[sample]
+      }
+    }
   }
   
   return(new_labels)
@@ -328,9 +318,14 @@ initializeActiveStatus <- function(samples, current_active = NULL) {
     samples
   )
   
+  # Merge with existing active status if it exists
   if (!is.null(current_active)) {
     existing_samples <- names(current_active)
-    new_active[existing_samples] <- current_active[existing_samples]
+    for (sample in existing_samples) {
+      if (sample %in% names(new_active)) {
+        new_active[sample] <- current_active[sample]
+      }
+    }
   }
   
   return(new_active)
