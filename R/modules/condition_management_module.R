@@ -27,14 +27,14 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Initialize state
-    state <- list(
-      condition_column = reactiveVal(NULL),
-      condition_labels = reactiveVal(NULL),
-      active_conditions = reactiveVal(NULL),
-      temp_labels = reactiveVal(NULL),
-      label_inputs = reactiveValues(),
-      available_columns = reactiveVal(NULL)
+    # Initialize state using reactiveValues for better state management
+    state <- reactiveValues(
+      condition_column = NULL,
+      condition_labels = NULL,
+      active_conditions = NULL,
+      temp_labels = NULL,
+      available_columns = NULL,
+      input_values = list()  # Added to track input values like in sample_management
     )
     
     # Get available metadata columns
@@ -47,67 +47,61 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       
       # Filter out standard columns we don't want to show
       exclude_columns <- c("orig.ident", "nCount_RNA", "nFeature_RNA", 
-                           "seurat_clusters", "percent.mt")
+                           "seurat_clusters", "percent.mt", "sample", "title")
       filtered_cols <- setdiff(meta_cols, exclude_columns)
       
       # Set available columns
-      state$available_columns(filtered_cols)
+      state$available_columns <- filtered_cols
+      
+      # Set default column selection if needed
+      if (is.null(state$condition_column) && length(filtered_cols) > 0) {
+        # Prioritize condition-like columns
+        priority_cols <- grep("condition|treatment|group|genotype|timepoint", 
+                              filtered_cols, value = TRUE, ignore.case = TRUE)
+        
+        if (length(priority_cols) > 0) {
+          state$condition_column <- priority_cols[1]
+        } else if (length(filtered_cols) > 0) {
+          state$condition_column <- filtered_cols[1]
+        }
+        
+        # Initialize conditions for the selected column
+        updateConditionState(state$condition_column)
+      }
     })
     
     # Render condition column selector
     output$conditionSelector <- renderUI({
-      available_cols <- state$available_columns()
+      req(state$available_columns)
+      available_cols <- state$available_columns
       
-      if (is.null(available_cols) || length(available_cols) == 0) {
+      if (length(available_cols) == 0) {
         return(div(
           class = "alert alert-info",
           "No metadata columns available. Please load data first."
         ))
       }
       
-      # Find the current selected column or set default
-      current_column <- state$condition_column()
+      # Find the current selected column
+      current_column <- state$condition_column
       
-      # Prioritize columns that look like conditions
-      priority_cols <- grep("condition|treatment|group|genotype|timepoint", 
-                            available_cols, value = TRUE, ignore.case = TRUE)
-      
-      selected_col <- if (!is.null(current_column) && current_column %in% available_cols) {
-        current_column
-      } else if (length(priority_cols) > 0) {
-        priority_cols[1]
-      } else if ("sample" %in% available_cols) {
-        "sample"
-      } else {
-        available_cols[1]
-      }
-      
-      div(
-        selectInput(ns("conditionColumn"), 
-                    "Select condition column:", 
-                    choices = available_cols,
-                    selected = selected_col),
-        actionButton(ns("updateConditionColumn"), 
-                     "Apply", 
-                     class = "btn-sm btn-primary")
-      )
+      selectInput(ns("conditionColumn"), 
+                  "Select condition column:", 
+                  choices = available_cols,
+                  selected = current_column)
     })
     
-    # Update condition column when Apply button is clicked
-    observeEvent(input$updateConditionColumn, {
-      req(input$conditionColumn)
-      # Update the column selection
-      state$condition_column(input$conditionColumn)
-      
-      # Reset condition management state for the new column
-      updateConditionState()
+    # Update condition state when dropdown selection changes
+    observeEvent(input$conditionColumn, {
+      state$condition_column <- input$conditionColumn
+      updateConditionState(input$conditionColumn)
     })
     
     #' @title Update Condition State
     #' @description Initialize or update condition management state based on the selected column
+    #' @param column The selected metadata column
     #' @keywords internal
-    updateConditionState <- function() {
-      column <- state$condition_column()
+    updateConditionState <- function(column) {
       if (is.null(column) || is.null(seurat_data())) return(NULL)
       
       # Get unique condition values
@@ -118,9 +112,9 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         if (length(condition_values) == 0) return(NULL)
         
         # Initialize labels and active status
-        state$condition_labels(initializeConditionLabels(condition_values))
-        state$temp_labels(state$condition_labels())
-        state$active_conditions(initializeActiveStatus(condition_values))
+        state$condition_labels <- initializeConditionLabels(condition_values, state$condition_labels)
+        state$temp_labels <- state$condition_labels
+        state$active_conditions <- initializeActiveStatus(condition_values, state$active_conditions)
       }
     }
     
@@ -129,7 +123,7 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
     #' @return Vector of unique condition values or NULL if none available
     #' @keywords internal
     getAvailableConditions <- function() {
-      column <- state$condition_column()
+      column <- state$condition_column
       if (is.null(column) || is.null(seurat_data())) return(NULL)
       
       if (column %in% colnames(seurat_data()@meta.data)) {
@@ -139,50 +133,10 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       }
     }
     
-    # Handle initial population when Seurat data changes
-    observeEvent(seurat_data(), {
-      # Reset available columns
-      meta_cols <- if (!is.null(seurat_data())) {
-        colnames(seurat_data()@meta.data)
-      } else {
-        NULL
-      }
-      
-      if (!is.null(meta_cols)) {
-        # Filter out standard columns
-        exclude_columns <- c("orig.ident", "nCount_RNA", "nFeature_RNA", 
-                             "seurat_clusters", "percent.mt")
-        filtered_cols <- setdiff(meta_cols, exclude_columns)
-        
-        # Set available columns
-        state$available_columns(filtered_cols)
-        
-        # Try to set a default condition column
-        priority_cols <- grep("condition|treatment|group|genotype|timepoint", 
-                              filtered_cols, value = TRUE, ignore.case = TRUE)
-        
-        if (length(priority_cols) > 0) {
-          state$condition_column(priority_cols[1])
-        } else if ("sample" %in% filtered_cols) {
-          state$condition_column("sample")
-        } else if (length(filtered_cols) > 0) {
-          state$condition_column(filtered_cols[1])
-        }
-        
-        # Initialize condition state
-        updateConditionState()
-      }
-    }, ignoreInit = TRUE)
-    
     # Setup UI for condition rows
     output$conditionRows <- renderUI({
-      column <- state$condition_column()
-      if (is.null(column)) {
-        return(div(
-          class = "alert alert-info",
-          "Please select a condition column above and click Apply."
-        ))
-      }
+      req(state$condition_column)
+      column <- state$condition_column
       
       available_conditions <- getAvailableConditions()
       
@@ -196,14 +150,18 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       }
       
       # Get current labels and active status
-      current_temp_labels <- state$temp_labels()
-      current_active <- state$active_conditions()
+      current_temp_labels <- state$temp_labels
+      current_active <- state$active_conditions
+      
+      # Calculate if all conditions are currently selected
+      all_selected <- !is.null(current_active) && all(unlist(current_active))
       
       # Return UI
       tagList(
         div(
           style = "display: flex; align-items: center; margin: 15px 0 10px 0;",
-          checkboxInput(ns("selectAllConditions"), "Select All Conditions", value = TRUE),
+          checkboxInput(ns("selectAllConditions"), "Select All Conditions", 
+                        value = all_selected),
           tags$div(style = "margin-left: 8px;",
                    actionButton(ns("updateAllLabels"), "Save Labels", 
                                 class = "btn-sm btn-primary")
@@ -216,134 +174,136 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       )
     })
     
-    # Handle selectAllConditions checkbox
-    observeEvent(input$selectAllConditions, {
+    # Track input values for each condition's checkbox
+    observe({
+      req(getAvailableConditions())
       available_conditions <- getAvailableConditions()
       
-      # Skip if no conditions available
-      if (is.null(available_conditions) || length(available_conditions) == 0) {
-        return(NULL)
-      }
+      # Monitor all checkboxes
+      lapply(available_conditions, function(condition) {
+        safe_id <- make_safe_id(condition)
+        input_id <- paste0("active_", safe_id)
+        
+        # Update input_values when checkbox changes
+        if (!is.null(input[[input_id]])) {
+          # This isolate prevents a circular dependency
+          isolate({
+            if (!identical(state$input_values[[input_id]], input[[input_id]])) {
+              state$input_values[[input_id]] <- input[[input_id]]
+              
+              # Also update the active_conditions directly
+              state$active_conditions[[condition]] <- input[[input_id]]
+            }
+          })
+        }
+      })
+    })
+    
+    # Handle selectAllConditions checkbox
+    observeEvent(input$selectAllConditions, {
+      req(getAvailableConditions())
+      available_conditions <- getAvailableConditions()
       
-      # Create a new named vector with all conditions set to the selected state
+      # Create a new active_conditions list with all conditions set to the checkbox value
       new_active <- setNames(
         rep(input$selectAllConditions, length(available_conditions)),
         available_conditions
       )
       
-      # Simply update the state once
-      state$active_conditions(new_active)
-    }, ignoreInit = TRUE)
-    
-    # Handle active status updates for individual conditions
-    observe({
-      available_conditions <- getAvailableConditions()
+      # Update state
+      state$active_conditions <- new_active
       
-      # Skip if no conditions available
-      if (is.null(available_conditions) || length(available_conditions) == 0) {
-        return(NULL)
-      }
-      
-      # Get current active status
-      current_active <- state$active_conditions()
-      if (is.null(current_active)) {
-        return(NULL)
-      }
-      
-      # Create separate observers for each condition checkbox
+      # Update individual checkboxes to match
       for (condition in available_conditions) {
-        local({
-          local_condition <- condition
-          input_id <- paste0("active_", make_safe_id(local_condition))
-          
-          # Create a separate observer for each checkbox
-          # This isolates the reactivity for each checkbox
-          observeEvent(input[[input_id]], {
-            # Important: Get the fresh copy of the active status each time
-            updated_active <- state$active_conditions()
-            
-            # Update just this condition
-            if (local_condition %in% names(updated_active)) {
-              updated_active[local_condition] <- input[[input_id]]
-              state$active_conditions(updated_active)
-              
-              # Update select all checkbox
-              updateCheckboxInput(
-                session, 
-                "selectAllConditions", 
-                value = all(unlist(updated_active))
-              )
-            }
-          }, ignoreInit = TRUE)
-        })
+        safe_id <- make_safe_id(condition)
+        updateCheckboxInput(session, paste0("active_", safe_id), value = input$selectAllConditions)
       }
     })
     
-    # Update label_inputs when text changes
+    # Track status of "Select All" checkbox based on individual selections
     observe({
+      req(getAvailableConditions())
       available_conditions <- getAvailableConditions()
-      if (is.null(available_conditions) || length(available_conditions) == 0) {
+      
+      # Skip if not initialized
+      if (is.null(state$active_conditions) || length(state$active_conditions) == 0) {
         return(NULL)
       }
+      
+      # Check if all conditions are active
+      all_active <- all(unlist(state$active_conditions))
+      
+      # Update the "Select All" checkbox if needed
+      if (!is.null(input$selectAllConditions) && input$selectAllConditions != all_active) {
+        updateCheckboxInput(session, "selectAllConditions", value = all_active)
+      }
+    })
+    
+    # Add JavaScript to handle checkbox changes
+    observe({
+      # Generate JavaScript for all checkboxes
+      req(getAvailableConditions())
+      available_conditions <- getAvailableConditions()
+      
+      lapply(available_conditions, function(condition) {
+        safe_id <- make_safe_id(condition)
+        checkbox_id <- paste0(ns("active_"), safe_id)
+        
+        # Add 'condition-management-checkbox' class to each checkbox
+        shinyjs::addClass(id = paste0("active_", safe_id), class = "condition-management-checkbox")
+      })
+    })
+    
+    # Handle label inputs
+    observe({
+      req(getAvailableConditions())
+      available_conditions <- getAvailableConditions()
       
       for(condition in available_conditions) {
         local({
           local_condition <- condition
-          input_id <- paste0("label_", make_safe_id(local_condition))
+          safe_id <- make_safe_id(local_condition)
+          input_id <- paste0("label_", safe_id)
           
-          # Only observe if this input exists
+          # Create observer for this specific label input
           if (!is.null(input[[input_id]])) {
             observeEvent(input[[input_id]], {
-              state$label_inputs[[input_id]] <- input[[input_id]]
+              # Store the input value in temp_labels
+              state$temp_labels[[local_condition]] <- input[[input_id]]
             }, ignoreInit = TRUE)
           }
         })
       }
     })
     
-    # Update temp_labels only when update button is clicked
+    # Update permanent labels when update button is clicked
     observeEvent(input$updateAllLabels, {
-      available_conditions <- getAvailableConditions()
-      if (is.null(available_conditions) || length(available_conditions) == 0) {
-        return(NULL)
-      }
-      
-      current_temp <- state$temp_labels()
-      
-      for(condition in available_conditions) {
-        input_id <- paste0("label_", make_safe_id(condition))
-        if(!is.null(state$label_inputs[[input_id]])) {
-          current_temp[condition] <- state$label_inputs[[input_id]]
-        }
-      }
-      
-      state$temp_labels(current_temp)
-      state$condition_labels(current_temp)
-      
+      # Update the permanent labels from the temporary ones
+      state$condition_labels <- state$temp_labels
       showNotification("Condition labels updated", type = "message")
     })
     
     # Return reactive expressions
     list(
-      getConditionColumn = reactive({ state$condition_column() }),
-      getConditionLabels = reactive({ state$condition_labels() }),
-      getActiveStatus = reactive({ state$active_conditions() }),
+      getConditionColumn = reactive({ state$condition_column }),
+      getConditionLabels = reactive({ state$condition_labels }),
+      getActiveStatus = reactive({ state$active_conditions }),
       getActiveConditions = reactive({
-        current_active <- state$active_conditions()
-        if (is.null(current_active)) return(NULL)
-        names(current_active[current_active == TRUE])
+        conditions <- state$active_conditions
+        if (is.null(conditions)) return(NULL)
+        names(conditions[conditions == TRUE])
       }),
       getActiveConditionList = reactive({
-        current_active <- state$active_conditions()
-        if (is.null(current_active)) return(NULL)
-        names(current_active[current_active == TRUE])
+        conditions <- state$active_conditions
+        if (is.null(conditions)) return(NULL)
+        names(conditions[conditions == TRUE])
       }),
       updateLabels = function(new_labels) {
-        state$condition_labels(new_labels)
-        state$temp_labels(new_labels)
+        state$condition_labels <- new_labels
+        state$temp_labels <- new_labels
       },
       updateActiveStatus = function(new_active) {
-        state$active_conditions(new_active)
+        state$active_conditions <- new_active
       }
     )
   })
@@ -386,10 +346,18 @@ createConditionControls <- function(ns, available_conditions, current_temp_label
         fluidRow(
           column(2,
                  tags$div(
-                   class = "condition-checkbox-container",
-                   checkboxInput(ns(paste0("active_", safe_id)), 
-                                 label = "",
-                                 value = is_active)
+                   style = "margin-top: 5px;",
+                   tags$div(
+                     class = "checkbox",
+                     tags$label(
+                       tags$input(
+                         type = "checkbox",
+                         id = ns(paste0("active_", safe_id)),
+                         class = "condition-management-checkbox",
+                         checked = if(is_active) "checked" else NULL
+                       )
+                     )
+                   )
                  )
           ),
           column(10, 
@@ -403,6 +371,27 @@ createConditionControls <- function(ns, available_conditions, current_temp_label
       )
     })
   )
+}
+
+#' @title Make Safe ID
+#' @description Creates a safe HTML/Shiny ID from a condition value by replacing
+#'   special characters with underscores and ensuring it starts with a letter.
+#' @param id String value to convert to a safe ID
+#' @return String containing a safe ID for use in HTML/Shiny
+#' @keywords internal
+make_safe_id <- function(id) {
+  # First, convert to character to handle numeric values
+  id_str <- as.character(id)
+  
+  # Replace special characters with underscores
+  safe_id <- gsub("[^a-zA-Z0-9]", "_", id_str)
+  
+  # Ensure it starts with a letter (Shiny input IDs must start with a letter)
+  if (!grepl("^[a-zA-Z]", safe_id)) {
+    safe_id <- paste0("c_", safe_id)
+  }
+  
+  return(safe_id)
 }
 
 #' @title Initialize Condition Labels
@@ -421,28 +410,14 @@ initializeConditionLabels <- function(conditions, current_labels = NULL) {
   # Merge with existing labels if they exist
   if (!is.null(current_labels)) {
     existing_conditions <- names(current_labels)
-    new_labels[existing_conditions] <- current_labels[existing_conditions]
+    for (condition in existing_conditions) {
+      if (condition %in% names(new_labels)) {
+        new_labels[condition] <- current_labels[condition]
+      }
+    }
   }
   
   return(new_labels)
-}
-
-#' @title Make Safe ID
-#' @description Creates a safe HTML/Shiny ID from a condition value by replacing
-#'   special characters with underscores and ensuring it starts with a letter.
-#' @param id String value to convert to a safe ID
-#' @return String containing a safe ID for use in HTML/Shiny
-#' @keywords internal
-make_safe_id <- function(id) {
-  # Replace special characters with underscores
-  safe_id <- gsub("[^a-zA-Z0-9]", "_", id)
-  
-  # Ensure it starts with a letter (Shiny input IDs must start with a letter)
-  if (!grepl("^[a-zA-Z]", safe_id)) {
-    safe_id <- paste0("c_", safe_id)
-  }
-  
-  return(safe_id)
 }
 
 #' @title Initialize Active Status
@@ -460,7 +435,11 @@ initializeActiveStatus <- function(conditions, current_active = NULL) {
   
   if (!is.null(current_active)) {
     existing_conditions <- names(current_active)
-    new_active[existing_conditions] <- current_active[existing_conditions]
+    for (condition in existing_conditions) {
+      if (condition %in% names(new_active)) {
+        new_active[condition] <- current_active[condition]
+      }
+    }
   }
   
   return(new_active)
