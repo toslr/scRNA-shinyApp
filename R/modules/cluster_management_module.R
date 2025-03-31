@@ -22,15 +22,15 @@ clusterManagementServer <- function(id, clustered_seurat) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Initialize state
-    state <- list(
-      cluster_labels = reactiveVal(NULL),
-      active_clusters = reactiveVal(NULL),
-      temp_labels = reactiveVal(NULL),
-      label_inputs = reactiveValues()
+    # Initialize state using reactiveValues for more stable reactivity
+    state <- reactiveValues(
+      cluster_labels = NULL,
+      active_clusters = NULL,
+      all_clusters = NULL,
+      input_values = list()
     )
     
-    # Get clusters from Seurat object
+    # Get clusters from Seurat object and initialize state
     observe({
       available_clusters <- getAvailableClusters(clustered_seurat())
       
@@ -39,251 +39,187 @@ clusterManagementServer <- function(id, clustered_seurat) {
         return(NULL)
       }
       
-      # Initialize or update labels if needed
-      current_labels <- state$cluster_labels()
-      if (is.null(current_labels) || 
-          !all(as.character(available_clusters) %in% names(current_labels))) {
-        
-        new_labels <- initializeClusterLabels(available_clusters, current_labels)
-        
-        state$cluster_labels(new_labels)
-        state$temp_labels(new_labels)
+      # Update all_clusters
+      state$all_clusters <- available_clusters
+      
+      # Initialize labels if needed
+      if (is.null(state$cluster_labels) || 
+          !all(as.character(available_clusters) %in% names(state$cluster_labels))) {
+        new_labels <- initializeClusterLabels(available_clusters, state$cluster_labels)
+        state$cluster_labels <- new_labels
       }
       
       # Initialize active status if needed
-      current_active <- state$active_clusters()
-      if (is.null(current_active) || 
-          !all(as.character(available_clusters) %in% names(current_active))) {
-        state$active_clusters(initializeActiveStatus(available_clusters, current_active))
+      if (is.null(state$active_clusters) || 
+          !all(as.character(available_clusters) %in% names(state$active_clusters))) {
+        state$active_clusters <- initializeActiveStatus(available_clusters, state$active_clusters)
       }
     })
     
-    # Handle initial population when clusters change
-    observeEvent(clustered_seurat(), {
-      available_clusters <- getAvailableClusters(clustered_seurat())
-      
-      if (!is.null(available_clusters) && length(available_clusters) > 0) {
-        # Initialize new labels and active status
-        new_labels <- initializeClusterLabels(available_clusters)
-        state$cluster_labels(new_labels)
-        state$temp_labels(new_labels)
-        
-        new_active <- initializeActiveStatus(available_clusters)
-        state$active_clusters(new_active)
-      }
-    }, ignoreInit = TRUE)
-    
-    # Setup UI for cluster controls
-    output$clusterControls <- renderUI({
-      available_clusters <- getAvailableClusters(clustered_seurat())
-      
-      # Show message if no clusters
-      if (is.null(available_clusters) || length(available_clusters) == 0) {
-        return(div(
-          class = "alert alert-info",
-          "No clusters available. Please run the clustering step first."
-        ))
-      }
-      
-      # Get current labels and active status
-      current_temp_labels <- state$temp_labels()
-      current_active <- state$active_clusters()
-      
-      # Return UI
-      createClusterControls(ns, available_clusters, current_temp_labels, current_active)
-    })
-    
-    # Setup UI for clusters
+    # Setup UI for cluster rows
     output$clusterRows <- renderUI({
-      available_clusters <- getAvailableClusters(clustered_seurat())
-      
-      # Show message if no clusters
-      if (is.null(available_clusters) || length(available_clusters) == 0) {
+      # Skip if no clusters
+      if (is.null(state$all_clusters) || length(state$all_clusters) == 0) {
         return(div(
           class = "alert alert-info",
           "No clusters available. Please run the clustering step first."
         ))
       }
       
-      # Get current labels and active status
-      current_temp_labels <- state$temp_labels()
-      current_active <- state$active_clusters()
-      
-      # Return UI
-      createClusterControls(ns, available_clusters, current_temp_labels, current_active)
+      # Generate UI controls
+      tagList(
+        lapply(state$all_clusters, function(cluster) {
+          cluster_key <- as.character(cluster)
+          is_active <- if (!is.null(state$active_clusters) && cluster_key %in% names(state$active_clusters)) {
+            state$active_clusters[[cluster_key]]
+          } else {
+            TRUE  # Default to active
+          }
+          
+          # Get current label with fallback options
+          current_label <- NULL
+          
+          # First check if we have a stored input value
+          input_id <- paste0("label_", cluster)
+          if (!is.null(state$input_values[[input_id]])) {
+            current_label <- state$input_values[[input_id]]
+          } 
+          # Then check saved labels
+          else if (!is.null(state$cluster_labels) && cluster_key %in% names(state$cluster_labels)) {
+            current_label <- state$cluster_labels[[cluster_key]]
+          } 
+          # Fallback to default cluster name
+          else {
+            current_label <- paste("Cluster", cluster)
+          }
+          
+          div(
+            style = paste0(
+              "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
+              if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
+            ),
+            fluidRow(
+              column(2,
+                     checkboxInput(ns(paste0("active_", cluster)), 
+                                   label = paste("", cluster),
+                                   value = is_active)
+              ),
+              column(10, 
+                     tags$div(
+                       textInput(ns(paste0("label_", cluster)),
+                                 label = NULL,
+                                 value = current_label)
+                     )
+              )
+            )
+          )
+        })
+      )
     })
     
-    # Handle Select All checkbox
-    observeEvent(input$selectAllClusters, {
-      available_clusters <- getAvailableClusters(clustered_seurat())
-      if (is.null(available_clusters) || length(available_clusters) == 0) {
-        return(NULL)
-      }
-      
-      current_active <- state$active_clusters()
-      for (cluster in available_clusters) {
-        cluster_key <- as.character(cluster)
-        current_active[cluster_key] <- input$selectAllClusters
-      }
-      state$active_clusters(current_active)
-      for (cluster in available_clusters) {
-        updateCheckboxInput(session, paste0("active_", cluster), value = input$selectAllClusters)
-      }
-    })
-    
-    # Handle active status updates for individual clusters
+    # Track input values for each cluster's label
     observe({
-      available_clusters <- getAvailableClusters(clustered_seurat())
+      req(state$all_clusters)
       
-      # Skip empty clusters
-      if (is.null(available_clusters) || length(available_clusters) == 0) {
-        return(NULL)
-      }
-      
-      lapply(available_clusters, function(cluster) {
-        input_id <- paste0("active_", cluster)
+      lapply(state$all_clusters, function(cluster) {
+        input_id <- paste0("label_", cluster)
         
-        # Only observe if this input exists
+        # Update input_values when input changes
         if (!is.null(input[[input_id]])) {
-          observeEvent(input[[input_id]], {
-            current_active <- state$active_clusters()
-            if (is.null(current_active)) {
-              return(NULL)
-            }
-            
-            cluster_key <- as.character(cluster)
-            
-            # Check if this cluster exists in our active_clusters
-            if (cluster_key %in% names(current_active)) {
-              current_active[cluster_key] <- input[[input_id]]
-              state$active_clusters(current_active)
-              
-              # Update select all checkbox based on all cluster checkboxes
-              all_selected <- all(unlist(current_active))
-              updateCheckboxInput(session, "selectAllClusters", value = all_selected)
-            }
-          }, ignoreInit = TRUE)
+          # This isolate prevents a circular dependency
+          isolate({
+            state$input_values[[input_id]] <- input[[input_id]]
+          })
         }
       })
     })
     
-    # Update label_inputs when text changes
-    observe({
-      available_clusters <- getAvailableClusters(clustered_seurat())
-      if (is.null(available_clusters) || length(available_clusters) == 0) {
-        return(NULL)
-      }
+    # Handle Select All checkbox
+    observeEvent(input$selectAllClusters, {
+      req(state$all_clusters)
       
-      for(cluster in available_clusters) {
+      # Create a new active_clusters list with all clusters set to the checkbox value
+      new_active <- setNames(
+        rep(input$selectAllClusters, length(state$all_clusters)),
+        as.character(state$all_clusters)
+      )
+      
+      # Update state
+      state$active_clusters <- new_active
+      
+      # Update individual checkboxes to match
+      for (cluster in state$all_clusters) {
+        updateCheckboxInput(session, paste0("active_", cluster), value = input$selectAllClusters)
+      }
+    })
+    
+    # Handle individual cluster activation
+    observe({
+      req(state$all_clusters)
+      
+      for (cluster in state$all_clusters) {
         local({
           local_cluster <- cluster
-          input_id <- paste0("label_", local_cluster)
+          cluster_key <- as.character(local_cluster)
+          input_id <- paste0("active_", local_cluster)
           
-          # Only observe if this input exists
           if (!is.null(input[[input_id]])) {
             observeEvent(input[[input_id]], {
-              state$label_inputs[[input_id]] <- input[[input_id]]
+              # Update active status for this cluster
+              state$active_clusters[[cluster_key]] <- input[[input_id]]
+              
+              # Update "Select All" checkbox
+              all_active <- all(unlist(state$active_clusters))
+              updateCheckboxInput(session, "selectAllClusters", value = all_active)
             }, ignoreInit = TRUE)
           }
         })
       }
     })
     
-    # Update temp_labels only when update button is clicked
+    # Update labels when the update button is clicked
     observeEvent(input$updateAllLabels, {
-      available_clusters <- getAvailableClusters(clustered_seurat())
-      if (is.null(available_clusters) || length(available_clusters) == 0) {
-        return(NULL)
-      }
+      req(state$all_clusters)
       
-      current_temp <- state$temp_labels()
-      
-      for(cluster in available_clusters) {
+      # Collect all input values
+      for (cluster in state$all_clusters) {
+        cluster_key <- as.character(cluster)
         input_id <- paste0("label_", cluster)
-        if(!is.null(state$label_inputs[[input_id]])) {
-          current_temp[as.character(cluster)] <- state$label_inputs[[input_id]]
+        
+        # Only update if we have a value
+        if (!is.null(input[[input_id]])) {
+          state$cluster_labels[[cluster_key]] <- input[[input_id]]
+          state$input_values[[input_id]] <- input[[input_id]]
         }
       }
-      
-      state$temp_labels(current_temp)
-      state$cluster_labels(current_temp)
       
       showNotification("Cluster labels updated", type = "message")
     })
     
     # Return reactive expressions
     list(
-      getClusterLabels = reactive({ state$cluster_labels() }),
-      getActiveStatus = reactive({ state$active_clusters() }),
+      getClusterLabels = reactive({ state$cluster_labels }),
+      getActiveStatus = reactive({ state$active_clusters }),
       getActiveClusterIds = reactive({
-        current_active <- state$active_clusters()
-        if (is.null(current_active)) return(NULL)
-        as.numeric(names(current_active[current_active == TRUE]))
+        if (is.null(state$active_clusters)) return(NULL)
+        as.numeric(names(state$active_clusters[unlist(state$active_clusters) == TRUE]))
       }),
       getActiveClusterList = reactive({
-        current_active <- state$active_clusters()
-        if (is.null(current_active)) return(NULL)
-        names(current_active[current_active == TRUE])
+        if (is.null(state$active_clusters)) return(NULL)
+        names(state$active_clusters[unlist(state$active_clusters) == TRUE])
       }),
       updateLabels = function(new_labels) {
-        state$cluster_labels(new_labels)
-        state$temp_labels(new_labels)
+        state$cluster_labels <- new_labels
+        for (cluster_key in names(new_labels)) {
+          input_id <- paste0("label_", gsub("^cluster_", "", cluster_key))
+          state$input_values[[input_id]] <- new_labels[[cluster_key]]
+        }
       },
       updateActiveStatus = function(new_active) {
-        state$active_clusters(new_active)
+        state$active_clusters <- new_active
       }
     )
   })
-}
-
-#' @title Create Cluster Controls
-#' @description Helper function that creates UI controls for each cluster,
-#'   including active/inactive toggle and label editing.
-#' @param ns Namespace function
-#' @param available_clusters Vector of available cluster IDs
-#' @param current_temp_labels Named vector of current cluster labels
-#' @param current_active Named vector of current active status (TRUE/FALSE)
-#' @return A UI element with controls for each cluster
-#' @keywords internal
-createClusterControls <- function(ns, available_clusters, current_temp_labels, current_active) {
-  tagList(
-    # Individual cluster controls
-    lapply(available_clusters, function(cluster) {
-      cluster_key <- as.character(cluster)
-      is_active <- if (cluster_key %in% names(current_active)) {
-        current_active[[cluster_key]]
-      } else {
-        TRUE  # Default to active if not found
-      }
-      
-      current_label <- if (cluster_key %in% names(current_temp_labels)) {
-        current_temp_labels[[cluster_key]]
-      } else {
-        paste("Cluster", cluster)
-      }
-      
-      div(
-        style = paste0(
-          "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
-          if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
-        ),
-        fluidRow(
-          column(2,
-                 checkboxInput(ns(paste0("active_", cluster)), 
-                               label = paste("", cluster),
-                               value = is_active)
-          ),
-          column(10, 
-                 tags$div(
-                   textInput(ns(paste0("label_", cluster)),
-                             label = NULL,
-                             value = current_label)
-                 )
-          )
-        )
-      )
-    })
-  )
 }
 
 #' @title Get Available Clusters
@@ -296,4 +232,55 @@ getAvailableClusters <- function(seurat_obj) {
     return(NULL)
   }
   sort(unique(seurat_obj$seurat_clusters))
+}
+
+#' @title Initialize Cluster Labels
+#' @description Creates default labels for clusters with format "Cluster X" while 
+#'   preserving any existing labels from the current_labels parameter.
+#' @param clusters Numeric vector of cluster IDs
+#' @param current_labels Optional named vector of existing cluster labels
+#' @return A named vector mapping cluster IDs to their labels
+#' @export
+initializeClusterLabels <- function(clusters, current_labels = NULL) {
+  new_labels <- setNames(
+    paste("Cluster", clusters), 
+    as.character(clusters)
+  )
+  
+  # Merge with existing labels if they exist
+  if (!is.null(current_labels)) {
+    existing_clusters <- names(current_labels)
+    for (cluster in existing_clusters) {
+      if (cluster %in% names(new_labels)) {
+        new_labels[cluster] <- current_labels[cluster]
+      }
+    }
+  }
+  
+  return(new_labels)
+}
+
+#' @title Initialize Active Status
+#' @description Creates a named vector indicating which clusters are active (TRUE/FALSE),
+#'   with the default being all clusters active. Preserves existing statuses if provided.
+#' @param clusters Numeric vector of cluster IDs
+#' @param current_active Optional named vector of existing active statuses
+#' @return A named logical vector indicating which clusters are active
+#' @export
+initializeActiveStatus <- function(clusters, current_active = NULL) {
+  new_active <- setNames(
+    rep(TRUE, length(clusters)),
+    as.character(clusters)
+  )
+  
+  if (!is.null(current_active)) {
+    existing_clusters <- names(current_active)
+    for (cluster in existing_clusters) {
+      if (cluster %in% names(new_active)) {
+        new_active[cluster] <- current_active[cluster]
+      }
+    }
+  }
+  
+  return(new_active)
 }
