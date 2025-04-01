@@ -69,6 +69,8 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       right_color_by = "cluster",
       filtered_clusters = NULL,
       filtered_samples = NULL,
+      filtered_condition = NULL,
+      condition_column = NULL,
       left_plot_update_trigger = runif(1),
       right_plot_update_trigger = runif(1)
     )
@@ -83,6 +85,27 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       # Update filtered samples
       if (!identical(values$filtered_samples, active_samples)) {
         values$filtered_samples <- active_samples
+        
+        # Force re-rendering of plots
+        values$left_plot_update_trigger <- runif(1)
+        values$right_plot_update_trigger <- runif(1)
+      }
+    })
+    
+    # Watch for changes in condition management active status
+    observe({
+      req(condition_management)
+      
+      # Get active conditions and the condition column
+      active_conditions <- condition_management$getActiveConditions()
+      condition_column <- condition_management$getConditionColumn()
+      
+      # Update filtered conditions and condition column
+      if (!identical(values$filtered_conditions, active_conditions) || 
+          !identical(values$condition_column, condition_column)) {
+        
+        values$filtered_conditions <- active_conditions
+        values$condition_column <- condition_column
         
         # Force re-rendering of plots
         values$left_plot_update_trigger <- runif(1)
@@ -764,6 +787,23 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Apply global condition filtering if there are active conditions defined
+      if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+          length(values$filtered_conditions) > 0 && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        
+        # Filter to show only cells from active conditions
+        cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(ggplot() + 
+                   annotate("text", x = 0.5, y = 0.5, 
+                            label = "No cells match the active condition selection") + 
+                   theme_void())
+        }
+      }
+      
       # Apply global cluster filtering if there are active clusters defined
       if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
         # Filter to show only cells from active clusters
@@ -808,6 +848,21 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         } else {
           return(plotly_empty() %>% 
                    layout(title = "No cells match the active sample selection"))
+        }
+      }
+      
+      # Apply global condition filtering if there are active conditions defined
+      if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+          length(values$filtered_conditions) > 0 && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        
+        # Filter to show only cells from active conditions
+        cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(plotly_empty() %>% 
+                   layout(title = "No cells match the active condition selection"))
         }
       }
       
@@ -862,6 +917,23 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Apply global condition filtering if there are active conditions defined
+      if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+          length(values$filtered_conditions) > 0 && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        
+        # Filter to show only cells from active conditions
+        cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(ggplot() + 
+                   annotate("text", x = 0.5, y = 0.5, 
+                            label = "No cells match the active condition selection") + 
+                   theme_void())
+        }
+      }
+      
       # Apply global cluster filtering if there are active clusters defined
       if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
         # Filter to show only cells from active clusters
@@ -909,6 +981,21 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Apply global condition filtering if there are active conditions defined
+      if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+          length(values$filtered_conditions) > 0 && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        
+        # Filter to show only cells from active conditions
+        cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(plotly_empty() %>% 
+                   layout(title = "No cells match the active condition selection"))
+        }
+      }
+      
       # Apply global cluster filtering if there are active clusters defined
       if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
         # Filter to show only cells from active clusters
@@ -951,6 +1038,18 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
           # Filter to show only cells from active samples
           cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Apply global condition filtering if there are active conditions defined
+        if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+            length(values$filtered_conditions) > 0 && 
+            values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+          
+          # Filter to show only cells from active conditions
+          cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
           if (any(cells_to_keep)) {
             filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
           }
@@ -1012,6 +1111,18 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
           # Filter to show only cells from active samples
           cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Apply global condition filtering if there are active conditions defined
+        if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+            length(values$filtered_conditions) > 0 && 
+            values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+          
+          # Filter to show only cells from active conditions
+          cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
           if (any(cells_to_keep)) {
             filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
           }
