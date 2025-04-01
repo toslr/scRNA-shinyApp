@@ -148,13 +148,49 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
     observeEvent(input$processSeurat, {
       req(seurat_data(), input$minFeature, input$maxFeature, input$maxMT)
       
-      # Process the Seurat object
+      # Create a filtered Seurat object
+      filtered_seurat <- seurat_data()
+      
+      # Apply sample filtering if available
+      if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+        # Filter to show only cells from active samples
+        cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          showNotification("No cells match the active sample selection. Cannot process data.", 
+                           type = "error")
+          return(NULL)
+        }
+      }
+      
+      # Apply condition filtering if available
+      if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+          length(values$filtered_conditions) > 0 && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        
+        # Filter to show only cells from active conditions
+        cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          showNotification("No cells match the active condition selection. Cannot process data.", 
+                           type = "error")
+          return(NULL)
+        }
+      }
+      
+      # Now process the filtered Seurat object
       values$filtered_data <- processQCFiltering(
-        seurat_data(), 
+        filtered_seurat, 
         input$minFeature, 
         input$maxFeature, 
         input$maxMT
       )
+      
+      # Show notification of success
+      showNotification("Data processed successfully with active sample/condition selections.", 
+                       type = "message")
     })
     
     # Return the processed data
