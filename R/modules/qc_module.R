@@ -27,20 +27,94 @@ qcUI <- function(id) {
 #' @description Server logic for the QC module that processes data filtering and visualization.
 #' @param id The module ID
 #' @param seurat_data Reactive expression containing the Seurat object
+#' @param sample_management Optional sample management module for filtering by samples
+#' @param condition_management Optional condition management module for filtering by conditions
 #' @return A reactive expression containing the processed and filtered Seurat object
 #' @export
-qcServer <- function(id, seurat_data) {
+qcServer <- function(id, seurat_data, sample_management = NULL, condition_management = NULL) {
   moduleServer(id, function(input, output, session) {
     
     # Reactive values to store state
     values <- reactiveValues(
-      filtered_data = NULL
+      filtered_data = NULL,
+      filtered_samples = NULL,
+      filtered_conditions = NULL,
+      condition_column = NULL,
+      plot_update_trigger = runif(1)
     )
     
-    # Handle sample selection for plot
+    # Watch for changes in sample management active status
+    observe({
+      req(sample_management)
+      
+      # Get active samples
+      active_samples <- sample_management$getActiveSampleIds()
+      
+      # Update filtered samples
+      if (!identical(values$filtered_samples, active_samples)) {
+        values$filtered_samples <- active_samples
+        
+        # Force re-rendering of plots
+        values$plot_update_trigger <- runif(1)
+      }
+    })
+    
+    # Watch for changes in condition management active status
+    observe({
+      req(condition_management)
+      
+      # Get active conditions and the condition column
+      active_conditions <- condition_management$getActiveConditions()
+      condition_column <- condition_management$getConditionColumn()
+      
+      # Update filtered conditions and condition column
+      if (!identical(values$filtered_conditions, active_conditions) || 
+          !identical(values$condition_column, condition_column)) {
+        
+        values$filtered_conditions <- active_conditions
+        values$condition_column <- condition_column
+        
+        # Force re-rendering of plots
+        values$plot_update_trigger <- runif(1)
+      }
+    })
+    
+    # Handle sample selection for plot with filtering
     plot_data <- reactive({
       req(seurat_data())
-      getSamplesToPlot(seurat_data())
+      
+      # Add this line to make the rendering reactive to the update trigger
+      trigger <- values$plot_update_trigger
+      
+      # Create a filtered Seurat object
+      filtered_seurat <- seurat_data()
+      
+      # Apply sample filtering if available
+      if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+        # Filter to show only cells from active samples
+        cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        }
+      }
+      
+      # Apply condition filtering if available
+      if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+          length(values$filtered_conditions) > 0 && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        
+        # Filter to show only cells from active conditions
+        cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        }
+      }
+      
+      # Apply sample limit to prevent overcrowding (get first 5 samples)
+      filtered_seurat <- getSamplesToPlot(filtered_seurat)
+      
+      # Return the filtered data
+      return(filtered_seurat)
     })
     
     # Create violin plot as a reactive expression

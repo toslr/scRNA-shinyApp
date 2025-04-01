@@ -30,7 +30,7 @@ buildServer <- function() {
     condition_management <- conditionManagementServer("conditionManagement", seurat_data, metadata_module)
     
     # Chain the reactive values through the analysis modules
-    processed_seurat <- qcServer("qc", seurat_data)
+    processed_seurat <- qcServer("qc", seurat_data, sample_management, condition_management)
     
     cluster_management <- clusterManagementServer("clusterManagement", clustered_seurat = reactive({
       if (!is.null(clustered_seurat())) return(clustered_seurat())
