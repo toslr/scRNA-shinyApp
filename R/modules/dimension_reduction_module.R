@@ -68,9 +68,27 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       left_color_by = "sample",
       right_color_by = "cluster",
       filtered_clusters = NULL,
+      filtered_samples = NULL,
       left_plot_update_trigger = runif(1),
       right_plot_update_trigger = runif(1)
     )
+    
+    # Watch for changes in sample management active status
+    observe({
+      req(sample_management)
+      
+      # Get active samples
+      active_samples <- sample_management$getActiveSampleIds()
+      
+      # Update filtered samples
+      if (!identical(values$filtered_samples, active_samples)) {
+        values$filtered_samples <- active_samples
+        
+        # Force re-rendering of plots
+        values$left_plot_update_trigger <- runif(1)
+        values$right_plot_update_trigger <- runif(1)
+      }
+    })
     
     # Watch for changes in cluster management active status
     observe({
@@ -732,6 +750,20 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       # First, create a filtered Seurat object based on active clusters
       filtered_seurat <- values$clustered_seurat
       
+      # Apply global sample filtering if there are active samples defined
+      if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+        # Filter to show only cells from active samples
+        cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(ggplot() + 
+                   annotate("text", x = 0.5, y = 0.5, 
+                            label = "No cells match the active sample selection") + 
+                   theme_void())
+        }
+      }
+      
       # Apply global cluster filtering if there are active clusters defined
       if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
         # Filter to show only cells from active clusters
@@ -766,6 +798,18 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       
       # First, create a filtered Seurat object based on active clusters
       filtered_seurat <- values$clustered_seurat
+      
+      # Apply global sample filtering if there are active samples defined
+      if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+        # Filter to show only cells from active samples
+        cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(plotly_empty() %>% 
+                   layout(title = "No cells match the active sample selection"))
+        }
+      }
       
       # Apply global cluster filtering if there are active clusters defined
       if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
@@ -804,6 +848,20 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       # First, create a filtered Seurat object based on active clusters
       filtered_seurat <- values$clustered_seurat
       
+      # Apply global sample filtering if there are active samples defined
+      if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+        # Filter to show only cells from active samples
+        cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(ggplot() + 
+                   annotate("text", x = 0.5, y = 0.5, 
+                            label = "No cells match the active sample selection") + 
+                   theme_void())
+        }
+      }
+      
       # Apply global cluster filtering if there are active clusters defined
       if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
         # Filter to show only cells from active clusters
@@ -838,6 +896,18 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       
       # First, create a filtered Seurat object based on active clusters
       filtered_seurat <- values$clustered_seurat
+      
+      # Apply global sample filtering if there are active samples defined
+      if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+        # Filter to show only cells from active samples
+        cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(plotly_empty() %>% 
+                   layout(title = "No cells match the active sample selection"))
+        }
+      }
       
       # Apply global cluster filtering if there are active clusters defined
       if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
@@ -876,6 +946,15 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       content = function(file) {
         # First, create a filtered Seurat object based on active clusters
         filtered_seurat <- values$clustered_seurat
+        
+        # Apply global sample filtering if there are active samples defined
+        if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+          # Filter to show only cells from active samples
+          cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
         
         # Apply global cluster filtering if there are active clusters defined
         if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
@@ -928,6 +1007,15 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       content = function(file) {
         # First, create a filtered Seurat object based on active clusters
         filtered_seurat <- values$clustered_seurat
+        
+        # Apply global sample filtering if there are active samples defined
+        if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+          # Filter to show only cells from active samples
+          cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
         
         # Apply global cluster filtering if there are active clusters defined
         if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
