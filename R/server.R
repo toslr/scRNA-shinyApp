@@ -39,7 +39,7 @@ buildServer <- function() {
     
     clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat, sample_management, condition_management, cluster_management)
     
-    de_module <- deAnalysisServer("de", clustered_seurat, cluster_management)
+    de_module <- deAnalysisServer("de", clustered_seurat, cluster_management, sample_management, condition_management)
     
     # Create reactive values to track completion of each step
     steps_completed <- reactiveValues(

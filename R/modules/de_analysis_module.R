@@ -19,14 +19,58 @@ deAnalysisUI <- function(id) {
 #' @param id The module ID
 #' @param clustered_seurat Reactive expression containing the clustered Seurat object
 #' @param cluster_management Cluster management module instance for accessing active clusters
+#' @param sample_management Optional sample management module for filtering by samples
+#' @param condition_management Optional condition management module for filtering by conditions
 #' @return A list of reactive expressions containing DE results and status
 #' @export
-deAnalysisServer <- function(id, clustered_seurat, cluster_management) {
+deAnalysisServer <- function(id, clustered_seurat, cluster_management, sample_management = NULL, condition_management = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
     # Initialize state management
     state <- setupReactiveState()
+    
+    # Track sample and condition filtering
+    state$filtered_samples <- reactiveVal(NULL)
+    state$filtered_conditions <- reactiveVal(NULL)
+    state$condition_column <- reactiveVal(NULL)
+    state$filter_update_trigger <- reactiveVal(runif(1))
+    
+    # Watch for changes in sample management active status
+    observe({
+      req(sample_management)
+      
+      # Get active samples
+      active_samples <- sample_management$getActiveSampleIds()
+      
+      # Update filtered samples
+      if (!identical(state$filtered_samples(), active_samples)) {
+        state$filtered_samples(active_samples)
+        
+        # Force UI refresh when filters change
+        state$filter_update_trigger(runif(1))
+      }
+    })
+    
+    # Watch for changes in condition management active status
+    observe({
+      req(condition_management)
+      
+      # Get active conditions and the condition column
+      active_conditions <- condition_management$getActiveConditions()
+      condition_column <- condition_management$getConditionColumn()
+      
+      # Update filtered conditions and condition column
+      if (!identical(state$filtered_conditions(), active_conditions) || 
+          !identical(state$condition_column(), condition_column)) {
+        
+        state$filtered_conditions(active_conditions)
+        state$condition_column(condition_column)
+        
+        # Force UI refresh when filters change
+        state$filter_update_trigger(runif(1))
+      }
+    })
     
     # Track cluster labels from cluster management module
     observe({
