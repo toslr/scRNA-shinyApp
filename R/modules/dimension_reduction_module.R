@@ -53,7 +53,7 @@ dimensionReductionUI <- function(id) {
 #' @param condition_management Optional condition management module for filtering by conditions
 #' @return Reactive expression returning the processed Seurat object with UMAP and clustering
 #' @export
-dimensionReductionServer <- function(id, processed_seurat, sample_management = NULL, condition_management = NULL) {
+dimensionReductionServer <- function(id, processed_seurat, sample_management = NULL, condition_management = NULL, cluster_management = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
@@ -66,8 +66,26 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       left_umap_type = "2D",
       right_umap_type = "2D",
       left_color_by = "sample",
-      right_color_by = "cluster"
+      right_color_by = "cluster",
+      filtered_clusters = NULL,
+      left_plot_update_trigger = runif(1),
+      right_plot_update_trigger = runif(1)
     )
+    
+    # Watch for changes in cluster management active status
+    observe({
+      req(cluster_management)
+      
+      # Get active clusters
+      active_clusters <- cluster_management$getActiveClusterIds()
+      
+      # Update filtered clusters in the module's state
+      values$filtered_clusters <- active_clusters
+      
+      # Force re-rendering of all plots by updating triggers
+      values$left_plot_update_trigger <- runif(1)
+      values$right_plot_update_trigger <- runif(1)
+    })
     
     # Find elbow point for optimal dimensions
     suggested_dims <- reactive({
@@ -708,17 +726,32 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
     output$leftUMAPPlot <- renderPlot({
       req(values$clustered_seurat, values$left_umap_type == "2D")
       
-      # Get active items for filtering
+      # Add this line to make the rendering reactive to the update trigger
+      trigger <- values$left_plot_update_trigger
+      
+      # First, create a filtered Seurat object based on active clusters
+      filtered_seurat <- values$clustered_seurat
+      
+      # Apply global cluster filtering if there are active clusters defined
+      if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
+        # Filter to show only cells from active clusters
+        cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        }
+      }
+      
+      # Now get active items for the coloring-specific toggles
       active_items <- get_left_active_items()
       
-      # Generate the plot based on coloring option
+      # Generate the plot based on coloring option with the already-filtered Seurat object
       if (values$left_color_by == "gene" && !is.null(left_selected_gene())) {
-        create_2d_umap_plot(values$clustered_seurat, 
+        create_2d_umap_plot(filtered_seurat, 
                             color_by = "gene", 
                             gene_id = left_selected_gene(), 
                             reduction = "umap2d")
       } else {
-        create_2d_umap_plot(values$clustered_seurat, 
+        create_2d_umap_plot(filtered_seurat, 
                             color_by = values$left_color_by, 
                             reduction = "umap2d",
                             active_items = active_items)
@@ -728,37 +761,69 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
     output$leftUMAPPlot3D <- renderPlotly({
       req(values$clustered_seurat, values$left_umap_type == "3D")
       
-      # Get active items for filtering
+      # Add this line to make the rendering reactive to the update trigger
+      trigger <- values$left_plot_update_trigger
+      
+      # First, create a filtered Seurat object based on active clusters
+      filtered_seurat <- values$clustered_seurat
+      
+      # Apply global cluster filtering if there are active clusters defined
+      if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
+        # Filter to show only cells from active clusters
+        cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(plotly_empty() %>% 
+                   layout(title = "No cells match the active cluster selection"))
+        }
+      }
+      
+      # Now get active items for the coloring-specific toggles
       active_items <- get_left_active_items()
       
-      # Generate the plot based on coloring option
+      # Generate the plot based on coloring option with the already-filtered Seurat object
       if (values$left_color_by == "gene" && !is.null(left_selected_gene())) {
-        create_3d_gene_umap_plot(values$clustered_seurat, 
+        create_3d_gene_umap_plot(filtered_seurat, 
                                  gene_id = left_selected_gene(), 
                                  reduction = "umap3d")
       } else {
-        create_3d_umap_plot(values$clustered_seurat, 
+        create_3d_umap_plot(filtered_seurat, 
                             color_by = values$left_color_by, 
                             reduction = "umap3d",
                             active_items = active_items)
       }
     })
     
-    # Right UMAP plot functions
     output$rightUMAPPlot <- renderPlot({
       req(values$clustered_seurat, values$right_umap_type == "2D")
       
-      # Get active items for filtering
+      # Add this line to make the rendering reactive to the update trigger
+      trigger <- values$right_plot_update_trigger
+      
+      # First, create a filtered Seurat object based on active clusters
+      filtered_seurat <- values$clustered_seurat
+      
+      # Apply global cluster filtering if there are active clusters defined
+      if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
+        # Filter to show only cells from active clusters
+        cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        }
+      }
+      
+      # Now get active items for the coloring-specific toggles
       active_items <- get_right_active_items()
       
-      # Generate the plot based on coloring option
+      # Generate the plot based on coloring option with the already-filtered Seurat object
       if (values$right_color_by == "gene" && !is.null(right_selected_gene())) {
-        create_2d_umap_plot(values$clustered_seurat, 
+        create_2d_umap_plot(filtered_seurat, 
                             color_by = "gene", 
                             gene_id = right_selected_gene(), 
                             reduction = "umap2d")
       } else {
-        create_2d_umap_plot(values$clustered_seurat, 
+        create_2d_umap_plot(filtered_seurat, 
                             color_by = values$right_color_by, 
                             reduction = "umap2d",
                             active_items = active_items)
@@ -768,16 +833,34 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
     output$rightUMAPPlot3D <- renderPlotly({
       req(values$clustered_seurat, values$right_umap_type == "3D")
       
-      # Get active items for filtering
+      # Add this line to make the rendering reactive to the update trigger
+      trigger <- values$right_plot_update_trigger
+      
+      # First, create a filtered Seurat object based on active clusters
+      filtered_seurat <- values$clustered_seurat
+      
+      # Apply global cluster filtering if there are active clusters defined
+      if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
+        # Filter to show only cells from active clusters
+        cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          return(plotly_empty() %>% 
+                   layout(title = "No cells match the active cluster selection"))
+        }
+      }
+      
+      # Now get active items for the coloring-specific toggles
       active_items <- get_right_active_items()
       
-      # Generate the plot based on coloring option
+      # Generate the plot based on coloring option with the already-filtered Seurat object
       if (values$right_color_by == "gene" && !is.null(right_selected_gene())) {
-        create_3d_gene_umap_plot(values$clustered_seurat, 
+        create_3d_gene_umap_plot(filtered_seurat, 
                                  gene_id = right_selected_gene(), 
                                  reduction = "umap3d")
       } else {
-        create_3d_umap_plot(values$clustered_seurat, 
+        create_3d_umap_plot(filtered_seurat, 
                             color_by = values$right_color_by, 
                             reduction = "umap3d",
                             active_items = active_items)
@@ -791,18 +874,30 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         paste0("umap_left_", values$left_color_by, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".", suffix)
       },
       content = function(file) {
+        # First, create a filtered Seurat object based on active clusters
+        filtered_seurat <- values$clustered_seurat
+        
+        # Apply global cluster filtering if there are active clusters defined
+        if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
+          # Filter to show only cells from active clusters
+          cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
         # Get active items for filtering
         active_items <- get_left_active_items()
         
         if (values$left_umap_type == "2D") {
           # Handle 2D plot
           p <- if (values$left_color_by == "gene" && !is.null(left_selected_gene())) {
-            create_2d_umap_plot(values$clustered_seurat, 
+            create_2d_umap_plot(filtered_seurat, 
                                 color_by = "gene", 
                                 gene_id = left_selected_gene(), 
                                 reduction = "umap2d")
           } else {
-            create_2d_umap_plot(values$clustered_seurat, 
+            create_2d_umap_plot(filtered_seurat, 
                                 color_by = values$left_color_by, 
                                 reduction = "umap2d",
                                 active_items = active_items)
@@ -811,11 +906,11 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         } else {
           # Handle 3D plot
           p <- if (values$left_color_by == "gene" && !is.null(left_selected_gene())) {
-            create_3d_gene_umap_plot(values$clustered_seurat, 
+            create_3d_gene_umap_plot(filtered_seurat, 
                                      gene_id = left_selected_gene(), 
                                      reduction = "umap3d")
           } else {
-            create_3d_umap_plot(values$clustered_seurat, 
+            create_3d_umap_plot(filtered_seurat, 
                                 color_by = values$left_color_by, 
                                 reduction = "umap3d",
                                 active_items = active_items)
@@ -831,18 +926,30 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         paste0("umap_right_", values$right_color_by, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".", suffix)
       },
       content = function(file) {
+        # First, create a filtered Seurat object based on active clusters
+        filtered_seurat <- values$clustered_seurat
+        
+        # Apply global cluster filtering if there are active clusters defined
+        if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
+          # Filter to show only cells from active clusters
+          cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
         # Get active items for filtering
         active_items <- get_right_active_items()
         
         if (values$right_umap_type == "2D") {
           # Handle 2D plot
           p <- if (values$right_color_by == "gene" && !is.null(right_selected_gene())) {
-            create_2d_umap_plot(values$clustered_seurat, 
+            create_2d_umap_plot(filtered_seurat, 
                                 color_by = "gene", 
                                 gene_id = right_selected_gene(), 
                                 reduction = "umap2d")
           } else {
-            create_2d_umap_plot(values$clustered_seurat, 
+            create_2d_umap_plot(filtered_seurat, 
                                 color_by = values$right_color_by, 
                                 reduction = "umap2d",
                                 active_items = active_items)
@@ -851,11 +958,11 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         } else {
           # Handle 3D plot
           p <- if (values$right_color_by == "gene" && !is.null(right_selected_gene())) {
-            create_3d_gene_umap_plot(values$clustered_seurat, 
+            create_3d_gene_umap_plot(filtered_seurat, 
                                      gene_id = right_selected_gene(), 
                                      reduction = "umap3d")
           } else {
-            create_3d_umap_plot(values$clustered_seurat, 
+            create_3d_umap_plot(filtered_seurat, 
                                 color_by = values$right_color_by, 
                                 reduction = "umap3d",
                                 active_items = active_items)

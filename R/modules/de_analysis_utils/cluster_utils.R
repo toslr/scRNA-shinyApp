@@ -50,7 +50,7 @@ initializeActiveStatus <- function(clusters, current_active = NULL) {
 #' @export
 getClusterLabel <- function(cluster, labels) {
   # Safety check to handle reactive values
-  if (is.function(labels)) {
+  if (is.reactive(labels)) {
     tryCatch({
       labels <- labels()
     }, error = function(e) {

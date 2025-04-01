@@ -28,9 +28,23 @@ deAnalysisServer <- function(id, clustered_seurat, cluster_management) {
     # Initialize state management
     state <- setupReactiveState()
     
+    # Track cluster labels from cluster management module
+    observe({
+      req(cluster_management)
+      # This will create a reactive dependency on the cluster labels
+      state$cluster_labels <- cluster_management$getClusterLabels()
+    })
+    
+    # Force UI refresh when cluster labels change
+    observeEvent(state$cluster_labels, {
+      output$analysisUI <- renderUI({
+        setupAnalysisUI(ns, clustered_seurat, cluster_management, state)
+      })
+    })
+    
     # Render Analysis UI
     output$analysisUI <- renderUI({
-      setupAnalysisUI(ns, clustered_seurat, cluster_management)
+      setupAnalysisUI(ns, clustered_seurat, cluster_management, state)
     })
     
     # Setup DE analysis handlers
@@ -39,7 +53,8 @@ deAnalysisServer <- function(id, clustered_seurat, cluster_management) {
     # Return results, status, and labels
     return(list(
       results = state$de_genes,
-      status = state$de_status
+      status = state$de_status,
+      cluster_labels = reactive({ state$cluster_labels })
     ))
   })
 }
@@ -60,7 +75,8 @@ setupReactiveState <- function() {
     de_status = reactiveVal(NULL),
     general_heatmap_genes = reactiveVal(NULL),
     general_heatmap_clusters = reactiveVal(NULL),
-    analysis_state = reactiveVal("none")
+    analysis_state = reactiveVal("none"),
+    cluster_labels = NULL
   )
 }
 
@@ -71,13 +87,14 @@ setupReactiveState <- function() {
 #' @param cluster_management Cluster management module instance
 #' @return UI elements for DE analysis
 #' @keywords internal
-setupAnalysisUI <- function(ns, clustered_seurat, cluster_management) {
+setupAnalysisUI <- function(ns, clustered_seurat, cluster_management, state) {
   if (is.null(cluster_management)) {
     return(div(
       class = "alert alert-warning",
       "Cluster management not initialized. Please refresh the application."
     ))
   }
+  
   active_cluster_ids <- cluster_management$getActiveClusterIds()
   
   # Check if we have any active clusters
@@ -88,8 +105,12 @@ setupAnalysisUI <- function(ns, clustered_seurat, cluster_management) {
     ))
   }
   
-  # Get current labels
-  current_labels <- cluster_management$getClusterLabels()
+  # Get current labels either from state or directly from cluster_management
+  current_labels <- if (!is.null(state$cluster_labels)) {
+    state$cluster_labels
+  } else {
+    cluster_management$getClusterLabels()
+  }
   
   # Create cluster choices for select inputs
   cluster_choices <- setNames(
@@ -118,6 +139,12 @@ setupAnalysisUI <- function(ns, clustered_seurat, cluster_management) {
 #' @keywords internal
 setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_management, state, session) {
   ns <- session$ns
+  
+  observe({
+    req(cluster_management)
+    state$cluster_labels <- cluster_management$getClusterLabels()
+  })
+  
   # Helper to clear state when starting a new analysis
   clear_state <- function(new_state) {
     state$analysis_state(new_state)
@@ -291,29 +318,17 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     req(state$heatmap_type() == "specific")
     req(clustered_seurat())
     
-    # Get the cluster labels from cluster_management - with better error handling
-    cluster_labels <- NULL
-    
-    if (!is.null(cluster_management)) {
+    # Get the latest cluster labels from state first, then from cluster_management
+    cluster_labels <- if (!is.null(state$cluster_labels)) {
+      state$cluster_labels
+    } else if (!is.null(cluster_management)) {
       tryCatch({
-        cluster_labels <- cluster_management$getClusterLabels()
+        cluster_management$getClusterLabels()
       }, error = function(e) {
-        # Fallback to default labels if error
+        NULL
       })
-    }
-    
-    # Check if state has cluster_labels as a backup
-    if (is.null(cluster_labels) && !is.null(state$cluster_labels)) {
-      tryCatch({
-        # Make sure to extract the value if it's a reactive
-        if (is.function(state$cluster_labels)) {
-          cluster_labels <- state$cluster_labels()
-        } else {
-          cluster_labels <- state$cluster_labels
-        }
-      }, error = function(e) {
-        # Continue with null if error
-      })
+    } else {
+      NULL
     }
     
     # Final fallback to default labels if still null
@@ -325,7 +340,7 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       )
     }
     
-    # Get active clusters list - handle potential errors
+    # Get active clusters list
     active_clusters <- tryCatch({
       if (is.function(active_cluster_list)) {
         as.numeric(active_cluster_list())
@@ -358,7 +373,29 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     req(state$general_heatmap_genes())
     req(clustered_seurat())
     
-    # Get active clusters safely
+    # Get the latest cluster labels from state first, then from cluster_management
+    cluster_labels <- if (!is.null(state$cluster_labels)) {
+      state$cluster_labels
+    } else if (!is.null(cluster_management)) {
+      tryCatch({
+        cluster_management$getClusterLabels()
+      }, error = function(e) {
+        NULL
+      })
+    } else {
+      NULL
+    }
+    
+    # Final fallback to default labels if still null
+    if (is.null(cluster_labels)) {
+      unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
+      cluster_labels <- setNames(
+        paste("Cluster", unique_clusters),
+        as.character(unique_clusters)
+      )
+    }
+    
+    # Get active clusters
     current_active <- tryCatch({
       if (is.function(active_cluster_list)) {
         active_cluster_list()
@@ -374,41 +411,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
                annotate("text", x = 0.5, y = 0.5, 
                         label = "No active clusters selected") + 
                theme_void())
-    }
-    
-    # Get the cluster labels with comprehensive error handling
-    cluster_labels <- NULL
-    
-    # Try from cluster_management first
-    if (!is.null(cluster_management)) {
-      tryCatch({
-        cluster_labels <- cluster_management$getClusterLabels()
-      }, error = function(e) {
-        # Continue with null if error
-      })
-    }
-    
-    # Try from state if needed
-    if (is.null(cluster_labels) && !is.null(state$cluster_labels)) {
-      tryCatch({
-        # Extract value if it's a reactive
-        if (is.function(state$cluster_labels)) {
-          cluster_labels <- state$cluster_labels()
-        } else {
-          cluster_labels <- state$cluster_labels
-        }
-      }, error = function(e) {
-        # Continue with null if error
-      })
-    }
-    
-    # Final fallback
-    if (is.null(cluster_labels)) {
-      unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
-      cluster_labels <- setNames(
-        paste("Cluster", unique_clusters),
-        as.character(unique_clusters)
-      )
     }
     
     # Call createGeneralHeatmap with robust error handling
@@ -471,9 +473,22 @@ runOneVsAllAnalysis <- function(seurat_obj, target_cluster, active_clusters, sta
       return(NULL)
     }
     
-    # Add comparison label
-    cluster_labels <- cluster_management$getClusterLabels()
-    cluster_label <- getClusterLabel(target_cluster, cluster_labels)
+    # Add comparison label - use the cluster labels from state first, then fallback to getting them directly
+    current_labels <- if (!is.null(state$cluster_labels)) {
+      state$cluster_labels
+    } else if (!is.null(cluster_management)) {
+      cluster_management$getClusterLabels()
+    } else {
+      NULL
+    }
+    
+    target_cluster_str <- as.character(target_cluster)
+    cluster_label <- if (!is.null(current_labels) && target_cluster_str %in% names(current_labels)) {
+      current_labels[[target_cluster_str]]
+    } else {
+      paste("Cluster", target_cluster)
+    }
+    
     de_results$comparison <- paste(cluster_label, "vs All Active")
     
     # Update state
@@ -506,10 +521,29 @@ runPairwiseAnalysis <- function(seurat_obj, cluster1, cluster2, state, cluster_m
       return(NULL)
     }
     
-    # Add comparison label
-    cluster_labels <- cluster_management$getClusterLabels()
-    cluster1_label <- getClusterLabel(cluster1, cluster_labels)
-    cluster2_label <- getClusterLabel(cluster2, cluster_labels)
+    # Add comparison label - use the cluster labels from state first, then fallback to getting them directly
+    current_labels <- if (!is.null(state$cluster_labels)) {
+      state$cluster_labels
+    } else if (!is.null(cluster_management)) {
+      cluster_management$getClusterLabels()
+    } else {
+      NULL
+    }
+    
+    cluster1_str <- as.character(cluster1)
+    cluster2_str <- as.character(cluster2)
+    
+    cluster1_label <- if (!is.null(current_labels) && cluster1_str %in% names(current_labels)) {
+      current_labels[[cluster1_str]]
+    } else {
+      paste("Cluster", cluster1)
+    }
+    
+    cluster2_label <- if (!is.null(current_labels) && cluster2_str %in% names(current_labels)) {
+      current_labels[[cluster2_str]]
+    } else {
+      paste("Cluster", cluster2)
+    }
     
     de_results$comparison <- paste(cluster1_label, "vs", cluster2_label)
     
@@ -543,15 +577,8 @@ runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_clu
         # Collect DE genes for each active cluster independently
         all_de_results <- list()
         
-        # Get cluster labels - ensure it's a value not a function
-        cluster_labels <- NULL
-        if (!is.null(state$cluster_labels) && is.function(state$cluster_labels)) {
-          tryCatch({
-            cluster_labels <- state$cluster_labels()
-          }, error = function(e) {
-            # Continue with null if error
-          })
-        }
+        # Get cluster labels
+        cluster_labels <- state$cluster_labels
         
         # Create default labels if needed
         if (is.null(cluster_labels)) {
@@ -566,10 +593,7 @@ runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_clu
           cluster <- active_clusters_num[i]
           
           # Get the cluster label safely
-          cluster_label <- paste("Cluster", cluster)
-          if (!is.null(cluster_labels) && as.character(cluster) %in% names(cluster_labels)) {
-            cluster_label <- cluster_labels[[as.character(cluster)]]
-          }
+          cluster_label <- getClusterLabel(cluster, cluster_labels)
           
           incProgress(1 / length(active_clusters_num), 
                       detail = paste("Finding markers for cluster", cluster_label))

@@ -27,7 +27,8 @@ clusterManagementServer <- function(id, clustered_seurat) {
       cluster_labels = NULL,
       active_clusters = NULL,
       all_clusters = NULL,
-      input_values = list()
+      input_values = list(),
+      last_update = NULL
     )
     
     # Get clusters from Seurat object and initialize state
@@ -151,6 +152,8 @@ clusterManagementServer <- function(id, clustered_seurat) {
       for (cluster in state$all_clusters) {
         updateCheckboxInput(session, paste0("active_", cluster), value = input$selectAllClusters)
       }
+      
+      state$last_update <- Sys.time()
     })
     
     # Handle individual cluster activation
@@ -165,12 +168,15 @@ clusterManagementServer <- function(id, clustered_seurat) {
           
           if (!is.null(input[[input_id]])) {
             observeEvent(input[[input_id]], {
+              old_value <- state$active_clusters[[cluster_key]]
               # Update active status for this cluster
               state$active_clusters[[cluster_key]] <- input[[input_id]]
               
               # Update "Select All" checkbox
               all_active <- all(unlist(state$active_clusters))
               updateCheckboxInput(session, "selectAllClusters", value = all_active)
+              
+              state$last_update <- Sys.time()
             }, ignoreInit = TRUE)
           }
         })
@@ -217,7 +223,8 @@ clusterManagementServer <- function(id, clustered_seurat) {
       },
       updateActiveStatus = function(new_active) {
         state$active_clusters <- new_active
-      }
+      },
+      last_update = reactive({ state$last_update })
     )
   })
 }

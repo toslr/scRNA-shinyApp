@@ -31,9 +31,13 @@ buildServer <- function() {
     
     # Chain the reactive values through the analysis modules
     processed_seurat <- qcServer("qc", seurat_data)
-    clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat, sample_management, condition_management)
     
-    cluster_management <- clusterManagementServer("clusterManagement", clustered_seurat)
+    cluster_management <- clusterManagementServer("clusterManagement", clustered_seurat = reactive({
+      if (!is.null(clustered_seurat())) return(clustered_seurat())
+      return(NULL)
+    }))
+    
+    clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat, sample_management, condition_management, cluster_management)
     
     de_module <- deAnalysisServer("de", clustered_seurat, cluster_management)
     

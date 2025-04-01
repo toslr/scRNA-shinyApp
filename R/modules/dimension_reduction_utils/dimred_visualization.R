@@ -161,7 +161,17 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
     # Color by cluster with optional filtering
     if (!is.null(active_items) && length(active_items) > 0) {
       # Filter to only show active clusters
-      cells_to_keep <- seurat_obj$seurat_clusters %in% active_items
+      cells_to_keep <- seurat_obj$seurat_clusters %in% as.numeric(active_items)
+      
+      # Check if any cells match the filter
+      if (!any(cells_to_keep)) {
+        # If no cells match, return a message plot
+        return(ggplot() + 
+                 annotate("text", x = 0.5, y = 0.5, 
+                          label = "No cells match the selected clusters") + 
+                 theme_void())
+      }
+      
       plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
     } else {
       plot_obj <- seurat_obj
@@ -237,25 +247,25 @@ create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "u
   # Handle subsetting based on active items
   if (!is.null(active_items) && length(active_items) > 0) {
     if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
-      cells_to_keep <- seurat_obj$seurat_clusters %in% active_items
-      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+      # Convert active_items to numeric for cluster comparison
+      cells_to_keep <- seurat_obj$seurat_clusters %in% as.numeric(active_items)
     } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
       cells_to_keep <- seurat_obj$sample %in% active_items
-      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
     } else if (color_by %in% colnames(seurat_obj@meta.data)) {
       cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% active_items
-      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
     } else {
-      plot_obj <- seurat_obj
+      cells_to_keep <- rep(TRUE, ncol(seurat_obj))
     }
+    
+    # Check if any cells match the filter
+    if (!any(cells_to_keep)) {
+      return(plotly_empty() %>% 
+               layout(title = "No cells match the current filter settings"))
+    }
+    
+    plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
   } else {
     plot_obj <- seurat_obj
-  }
-  
-  # Check if we have cells to plot
-  if (ncol(plot_obj) == 0) {
-    return(plotly_empty() %>% 
-             layout(title = "No cells to display with current filter settings"))
   }
   
   # Extract UMAP coordinates
