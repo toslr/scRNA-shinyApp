@@ -263,6 +263,19 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       return(values$filtered_data)
     }
     
+    setProcessedData <- function(new_data) {
+      if (!is.null(new_data)) {
+        values$filtered_data <- new_data
+        # Update internal parameters based on the loaded data if possible
+        tryCatch({
+          # You could add code here to extract parameters from the loaded data
+          # or just trust that the UI update has set the correct parameters
+        }, error = function(e) {
+          print(paste("Error updating QC parameters:", e$message))
+        })
+      }
+    }
+    
     # Return a list with the processed data and methods for state restoration
     return(list(
       data = processed_seurat,
@@ -273,7 +286,8 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
           max_mt = values$max_mt
         )
       },
-      processWithParameters = processWithParameters
+      processWithParameters = processWithParameters,
+      setProcessedData = setProcessedData
     ))
   })
 }

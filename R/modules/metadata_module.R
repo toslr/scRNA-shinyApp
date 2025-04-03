@@ -160,13 +160,27 @@ metadataServer <- function(id) {
       selected_samples(input$selected)
     })
     
+    setSelectedSamples <- function(samples) {
+      if (!is.null(samples) && length(samples) > 0) {
+        selected_samples(samples)
+        
+        # Update checkboxes if the DT is already rendered
+        # This requires special handling with JavaScript
+        session$sendCustomMessage(
+          type = "updateSampleCheckboxes",
+          message = list(samples = samples)
+        )
+      }
+    }
+    
     # Return reactive expressions
     list(
       getMetadata = reactive({ geo_metadata() }),
       selectedSamples = reactive({ selected_samples() }),
       updateMetadata = function(new_metadata) {
         geo_metadata(new_metadata)
-      }
+      },
+      setSelectedSamples = setSelectedSamples
     )
   })
 }

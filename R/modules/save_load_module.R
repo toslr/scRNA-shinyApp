@@ -15,7 +15,8 @@ saveLoadUI <- function(id) {
 }
 
 saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat, 
-                           clustered_seurat, de_module, steps_completed, session) {
+                           clustered_seurat, de_module, steps_completed, session,
+                           sample_management = NULL, condition_management = NULL, cluster_management = NULL) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
@@ -68,6 +69,7 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
     loaded_data <- reactiveVal(NULL)
     
     # Handle save
+    
     observeEvent(input$saveAnalysis, {
       req(input$saveName)
       
@@ -93,7 +95,9 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             
             # Process data with error handling
             tryCatch({
-              if (is.reactive(processed_seurat)) {
+              if (is.list(processed_seurat) && is.function(processed_seurat$data)) {
+                current_processed <- processed_seurat$data()
+              } else if (is.reactive(processed_seurat)) {
                 current_processed <- processed_seurat()
               }
             }, error = function(e) {
@@ -102,7 +106,9 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             
             # Get clustered data with error handling
             tryCatch({
-              if (is.reactive(clustered_seurat)) {
+              if (is.list(clustered_seurat) && is.function(clustered_seurat$data)) {
+                current_clustered <- clustered_seurat$data()
+              } else if (is.reactive(clustered_seurat)) {
                 current_clustered <- clustered_seurat()
               }
             }, error = function(e) {
@@ -128,23 +134,60 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             
             # Get DE data
             current_de_results <- NULL
-            current_cluster_labels <- NULL
-            current_active_clusters <- NULL
+            current_de_analysis_type <- NULL
+            current_heatmap_data <- NULL
+            current_general_heatmap_genes <- NULL
             
             tryCatch({
               if (!is.null(de_module) && is.list(de_module)) {
                 if (is.function(de_module$results)) {
                   current_de_results <- de_module$results()
                 }
-                if (is.function(de_module$labels)) {
-                  current_cluster_labels <- de_module$labels()
+                # Safely check if function exists before calling
+                if ("getAnalysisState" %in% names(de_module) && is.function(de_module$getAnalysisState)) {
+                  current_de_analysis_type <- de_module$getAnalysisState()
                 }
-                if (is.function(de_module$active)) {
-                  current_active_clusters <- de_module$active()
+                if ("getHeatmapData" %in% names(de_module) && is.function(de_module$getHeatmapData)) {
+                  current_heatmap_data <- de_module$getHeatmapData()
+                }
+                if ("getGeneralHeatmapGenes" %in% names(de_module) && is.function(de_module$getGeneralHeatmapGenes)) {
+                  current_general_heatmap_genes <- de_module$getGeneralHeatmapGenes()
                 }
               }
             }, error = function(e) {
               print(paste("Error getting DE data:", e$message))
+            })
+            
+            # Get management module states
+            sample_management_state <- NULL
+            condition_management_state <- NULL
+            cluster_management_state <- NULL
+            
+            tryCatch({
+              if (!is.null(sample_management) && is.list(sample_management) && 
+                  "getFullState" %in% names(sample_management) && is.function(sample_management$getFullState)) {
+                sample_management_state <- sample_management$getFullState()
+              }
+            }, error = function(e) {
+              print(paste("Error getting sample management state:", e$message))
+            })
+            
+            tryCatch({
+              if (!is.null(condition_management) && is.list(condition_management) && 
+                  "getFullState" %in% names(condition_management) && is.function(condition_management$getFullState)) {
+                condition_management_state <- condition_management$getFullState()
+              }
+            }, error = function(e) {
+              print(paste("Error getting condition management state:", e$message))
+            })
+            
+            tryCatch({
+              if (!is.null(cluster_management) && is.list(cluster_management) && 
+                  "getFullState" %in% names(cluster_management) && is.function(cluster_management$getFullState)) {
+                cluster_management_state <- cluster_management$getFullState()
+              }
+            }, error = function(e) {
+              print(paste("Error getting cluster management state:", e$message))
             })
             
             # Get step completion status
@@ -194,7 +237,11 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             # Capture DE parameters
             de_params <- NULL
             tryCatch({
-              de_analysis_done <- !is.null(current_de_results) && nrow(current_de_results) > 0
+              de_analysis_done <- !is.null(current_de_results) && length(current_de_results) > 0
+              # For dataframes, check rows
+              if (is.data.frame(current_de_results)) {
+                de_analysis_done <- nrow(current_de_results) > 0
+              }
               
               de_params <- list(
                 target_cluster_all = input$`de-targetClusterAll`,
@@ -202,7 +249,7 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
                 target_cluster2 = input$`de-targetCluster2`,
                 genes_per_cluster = input$`de-genesPerCluster`,
                 de_analysis_done = de_analysis_done,
-                analysis_type = if(!is.null(de_module$analysis_state)) de_module$analysis_state() else NULL
+                analysis_type = current_de_analysis_type
               )
             }, error = function(e) {
               print(paste("Error capturing DE parameters:", e$message))
@@ -218,8 +265,12 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             metadata = current_metadata,
             selected_samples = current_selected_samples,
             de_results = current_de_results,
-            cluster_labels = current_cluster_labels,
-            active_clusters = current_active_clusters,
+            de_analysis_type = current_de_analysis_type,
+            de_heatmap_data = current_heatmap_data,
+            de_general_heatmap_genes = current_general_heatmap_genes,
+            sample_management_state = sample_management_state,
+            condition_management_state = condition_management_state,
+            cluster_management_state = cluster_management_state,
             steps_completed = current_steps,
             ui_state = list(
               qc_params = qc_params,

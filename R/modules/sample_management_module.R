@@ -230,6 +230,25 @@ sampleManagementServer <- function(id, seurat_data) {
         if (is.null(state$active_samples)) return(NULL)
         names(state$active_samples[unlist(state$active_samples) == TRUE])
       }),
+      getFullState = function() {
+        list(
+          sample_labels = state$sample_labels,
+          active_samples = state$active_samples,
+          all_samples = state$all_samples
+        )
+      },
+      setFullState = function(saved_state) {
+        if (!is.null(saved_state)) {
+          if (!is.null(saved_state$sample_labels)) {
+            state$sample_labels <- saved_state$sample_labels
+          }
+          if (!is.null(saved_state$active_samples)) {
+            state$active_samples <- saved_state$active_samples
+          }
+          # Force UI refresh
+          state$all_samples <- state$all_samples
+        }
+      },
       getActiveSampleList = reactive({
         if (is.null(state$active_samples)) return(NULL)
         names(state$active_samples[unlist(state$active_samples) == TRUE])

@@ -21,15 +21,8 @@ restoreQcUI <- function(qc_params, session) {
       updateNumericInput(session, "qc-maxMT", value = qc_params$maxMT)
     }
     
-    # If QC was processed, we need to trigger the processing button click
-    if (!is.null(qc_params$qc_processed) && qc_params$qc_processed) {
-      # Delay slightly to let the inputs update first
-      shinyjs::delay(300, {
-        # Programmatically click the process button
-        shinyjs::click("qc-processSeurat")
-      })
-      return(TRUE)
-    }
+    # Return whether QC was processed, but DON'T trigger the button
+    return(!is.null(qc_params$qc_processed) && qc_params$qc_processed)
   }, error = function(e) {
     print(paste("Error restoring QC UI:", e$message))
   })
@@ -52,15 +45,8 @@ restorePcaUI <- function(pca_params, session) {
       updateNumericInput(session, "dimRed-nDims", value = pca_params$nDims)
     }
     
-    # If dimensions were confirmed, trigger the confirmation
-    if (!is.null(pca_params$dims_confirmed) && pca_params$dims_confirmed) {
-      # Delay slightly to let the inputs update first
-      shinyjs::delay(600, {
-        # Programmatically click the confirm dimensions button
-        shinyjs::click("dimRed-confirmDims")
-      })
-      return(TRUE)
-    }
+    # Return whether dimensions were confirmed, but DON'T trigger the button
+    return(!is.null(pca_params$dims_confirmed) && pca_params$dims_confirmed)
   }, error = function(e) {
     print(paste("Error restoring PCA UI:", e$message))
   })
@@ -82,13 +68,8 @@ restoreClusteringUI <- function(clustering_params, session) {
       updateNumericInput(session, "dimRed-resolution", value = clustering_params$resolution)
     }
     
-    # If clustering was done, trigger the button click
-    if (!is.null(clustering_params$clustering_done) && clustering_params$clustering_done) {
-      shinyjs::delay(300, {
-        shinyjs::click("dimRed-runClustering")
-      })
-      return(TRUE)
-    }
+    # Return whether clustering was done, but DON'T trigger the button
+    return(!is.null(clustering_params$clustering_done) && clustering_params$clustering_done)
   }, error = function(e) {
     print(paste("Error restoring clustering UI:", e$message))
   })
@@ -122,27 +103,8 @@ restoreDEAnalysisUI <- function(de_params, session) {
       updateNumericInput(session, "de-genesPerCluster", value = de_params$genes_per_cluster)
     }
     
-    # If DE analysis was done, trigger the appropriate button based on analysis type
-    if (!is.null(de_params$de_analysis_done) && de_params$de_analysis_done) {
-      if (!is.null(de_params$analysis_type)) {
-        if (de_params$analysis_type == "one_vs_all") {
-          shinyjs::delay(300, {
-            shinyjs::click("de-runDEAll")
-          })
-          return(TRUE)
-        } else if (de_params$analysis_type == "pairwise") {
-          shinyjs::delay(300, {
-            shinyjs::click("de-runDEPair")
-          })
-          return(TRUE)
-        } else if (de_params$analysis_type == "general_heatmap") {
-          shinyjs::delay(300, {
-            shinyjs::click("de-runGeneralHeatmap")
-          })
-          return(TRUE)
-        }
-      }
-    }
+    # Return whether DE was done, but DON'T trigger the buttons
+    return(!is.null(de_params$de_analysis_done) && de_params$de_analysis_done)
   }, error = function(e) {
     print(paste("Error restoring DE UI:", e$message))
   })

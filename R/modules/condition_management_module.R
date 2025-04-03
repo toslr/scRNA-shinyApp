@@ -288,6 +288,30 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       getConditionColumn = reactive({ state$condition_column }),
       getConditionLabels = reactive({ state$condition_labels }),
       getActiveStatus = reactive({ state$active_conditions }),
+      getFullState = function() {
+        list(
+          condition_column = state$condition_column,
+          condition_labels = state$condition_labels,
+          active_conditions = state$active_conditions,
+          temp_labels = state$temp_labels
+        )
+      },
+      setFullState = function(saved_state) {
+        if (!is.null(saved_state)) {
+          if (!is.null(saved_state$condition_column)) {
+            state$condition_column <- saved_state$condition_column
+          }
+          if (!is.null(saved_state$condition_labels)) {
+            state$condition_labels <- saved_state$condition_labels
+          }
+          if (!is.null(saved_state$active_conditions)) {
+            state$active_conditions <- saved_state$active_conditions
+          }
+          if (!is.null(saved_state$temp_labels)) {
+            state$temp_labels <- saved_state$temp_labels
+          }
+        }
+      },
       getActiveConditions = reactive({
         conditions <- state$active_conditions
         if (is.null(conditions)) return(NULL)

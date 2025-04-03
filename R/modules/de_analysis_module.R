@@ -94,11 +94,48 @@ deAnalysisServer <- function(id, clustered_seurat, cluster_management, sample_ma
     # Setup DE analysis handlers
     setupAnalysisHandlers(input, output, clustered_seurat, cluster_management, state, session)
     
+    setResults <- function(new_results, analysis_type = NULL, heatmap_data = NULL, general_heatmap_genes = NULL) {
+      if (!is.null(new_results)) {
+        state$de_genes(new_results)
+        state$de_status("completed")
+        
+        # Set the analysis state based on input or determine from results
+        if (!is.null(analysis_type)) {
+          state$analysis_state(analysis_type)
+        } else if ("comparison" %in% colnames(new_results)) {
+          # Try to determine if it's one-vs-all or pairwise from results
+          if (grepl("vs All", new_results$comparison[1])) {
+            state$analysis_state("one_vs_all")
+          } else {
+            state$analysis_state("pairwise")
+          }
+        }
+        
+        # Set heatmap data if provided
+        if (!is.null(heatmap_data)) {
+          state$heatmap_data(heatmap_data)
+          state$heatmap_type("specific")
+        }
+        
+        # Set general heatmap data if provided
+        if (!is.null(general_heatmap_genes)) {
+          state$general_heatmap_genes(general_heatmap_genes)
+          if (state$analysis_state() == "general_heatmap") {
+            state$heatmap_type("general")
+          }
+        }
+      }
+    }
+    
     # Return results, status, and labels
     return(list(
       results = state$de_genes,
       status = state$de_status,
-      cluster_labels = reactive({ state$cluster_labels })
+      cluster_labels = reactive({ state$cluster_labels }),
+      getAnalysisState = function() { state$analysis_state() },
+      getHeatmapData = function() { state$heatmap_data() },
+      getGeneralHeatmapGenes = function() { state$general_heatmap_genes() },
+      setResults = setResults
     ))
   })
 }

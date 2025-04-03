@@ -88,7 +88,10 @@ buildServer <- function() {
                                       dimred_module, 
                                       de_module,
                                       steps_completed,
-                                      session)
+                                      session,
+                                      sample_management,
+                                      condition_management,
+                                      cluster_management)
     
     # Handle loaded analysis data with enhanced UI restoration
     observe({
@@ -96,70 +99,100 @@ buildServer <- function() {
       if (is.null(data)) return()
       
       # Verify we have some of the key components
-      if (is.null(data$seurat_data) && is.null(data$processed_seurat)) {
+      if (is.null(data$seurat_data) && is.null(data$processed_seurat) && is.null(data$clustered_seurat)) {
         showNotification("Warning: Loaded analysis may be incomplete", type = "warning")
         return()
       }
       
-      # Update data objects first
-      if (!is.null(data$seurat_data)) {
-        data_input(data$seurat_data)
-      }
-      
-      # Main UI restoration workflow with sequential delays
-      # This ensures each UI element is updated in the correct order
-      shinyjs::delay(500, {
-        withProgress(message = 'Restoring analysis state...', value = 0, {
-          # First restore QC parameters and simulate button click if needed
-          incProgress(0.3, detail = "Restoring QC parameters")
-          qc_processed <- FALSE
-          
-          if (!is.null(data$ui_state) && !is.null(data$ui_state$qc_params)) {
-            qc_processed <- restoreQcUI(data$ui_state$qc_params, session)
-          }
-          
-          # If QC wasn't processed in the saved state, we're done
-          if (!qc_processed) {
-            incProgress(1.0, detail = "Restoration complete")
-            return()
-          }
-          
-          # After QC is processed, restore PCA/dimension reduction state
-          # Use a longer delay to ensure QC completes first
-          shinyjs::delay(10000, {
-            incProgress(0.6, detail = "Restoring dimension reduction")
-            
-            if (!is.null(data$ui_state) && !is.null(data$ui_state$pca_params)) {
-              restorePcaUI(data$ui_state$pca_params, session)
-            }
-            
-            incProgress(1.0, detail = "Restoration complete")
-            showNotification("Analysis state fully restored", type = "message")
+      # Start a progress indication
+      withProgress(message = 'Restoring analysis state...', value = 0, {
+        
+        # First, update steps completed to ensure proper UI display
+        incProgress(0.1, detail = "Updating completion status")
+        for (step in names(data$steps_completed)) {
+          steps_completed[[step]] <- data$steps_completed[[step]]
+        }
+        
+        # Update original data
+        incProgress(0.2, detail = "Restoring data")
+        if (!is.null(data$seurat_data)) {
+          data_input(data$seurat_data)
+        }
+        
+        # Update QC parameters in UI (but don't trigger processing)
+        incProgress(0.3, detail = "Restoring QC state")
+        if (!is.null(data$ui_state) && !is.null(data$ui_state$qc_params)) {
+          qc_params <- data$ui_state$qc_params
+          updateNumericInput(session, "qc-minFeature", value = qc_params$minFeature)
+          updateNumericInput(session, "qc-maxFeature", value = qc_params$maxFeature)
+          updateNumericInput(session, "qc-maxMT", value = qc_params$maxMT)
+        }
+        
+        # CRITICAL: Directly update the processed Seurat object without triggering computation
+        incProgress(0.4, detail = "Restoring processed data")
+        if (is.list(qc_module) && is.function(qc_module$setProcessedData) && !is.null(data$processed_seurat)) {
+          qc_module$setProcessedData(data$processed_seurat)
+        }
+        
+        # Update dimension reduction parameters
+        incProgress(0.6, detail = "Restoring dimension reduction")
+        if (!is.null(data$ui_state) && !is.null(data$ui_state$pca_params)) {
+          updateNumericInput(session, "dimRed-nDims", value = data$ui_state$pca_params$nDims)
+        }
+        
+        # CRITICAL: Directly update the clustered Seurat object without triggering computation
+        incProgress(0.7, detail = "Restoring clustering")
+        if (is.list(dimred_module) && is.function(dimred_module$setClusteredData) && !is.null(data$clustered_seurat)) {
+          dimred_module$setClusteredData(data$clustered_seurat)
+        }
+        
+        # Restore clustering parameters without triggering computation
+        if (!is.null(data$ui_state) && !is.null(data$ui_state$clustering_params)) {
+          updateNumericInput(session, "dimRed-resolution", value = data$ui_state$clustering_params$resolution)
+        }
+        
+        # Restore management module states
+        incProgress(0.85, detail = "Restoring management states")
+        
+        # Restore sample management state
+        if (!is.null(data$sample_management_state) && 
+            is.list(sample_management) && 
+            is.function(sample_management$setFullState)) {
+          sample_management$setFullState(data$sample_management_state)
+        }
+        
+        # Restore condition management state
+        if (!is.null(data$condition_management_state) && 
+            is.list(condition_management) && 
+            is.function(condition_management$setFullState)) {
+          condition_management$setFullState(data$condition_management_state)
+        }
+        
+        # Restore cluster management state
+        if (!is.null(data$cluster_management_state) && 
+            is.list(cluster_management) && 
+            is.function(cluster_management$setFullState)) {
+          cluster_management$setFullState(data$cluster_management_state)
+        }
+        
+        # Restore DE analysis parameters and results if available
+        incProgress(0.9, detail = "Restoring DE analysis")
+        if (is.list(de_module) && is.function(de_module$setResults) && !is.null(data$de_results)) {
+          # Call setResults with proper arguments
+          tryCatch({
+            de_module$setResults(
+              data$de_results, 
+              data$de_analysis_type, 
+              data$de_heatmap_data, 
+              data$de_general_heatmap_genes
+            )
+          }, error = function(e) {
+            print(paste("Error setting DE results:", e$message))
           })
-          
-          # After PCA is restored, restore clustering if needed
-          shinyjs::delay(1500, {
-            incProgress(0.7, detail = "Restoring clustering")
-            
-            if (!is.null(data$ui_state) && !is.null(data$ui_state$clustering_params)) {
-              clustering_restored <- restoreClusteringUI(data$ui_state$clustering_params, session)
-              
-              # After clustering is restored, restore DE analysis if needed
-              if (clustering_restored) {
-                shinyjs::delay(1000, {
-                  incProgress(0.9, detail = "Restoring DE analysis")
-                  
-                  if (!is.null(data$ui_state) && !is.null(data$ui_state$de_params)) {
-                    restoreDEAnalysisUI(data$ui_state$de_params, session)
-                  }
-                  
-                  incProgress(1.0, detail = "Restoration complete")
-                  showNotification("Analysis state fully restored", type = "message")
-                })
-              }
-            }
-          })
-        })
+        }
+        
+        incProgress(1.0, detail = "Restoration complete")
+        showNotification("Analysis state fully restored", type = "message")
       })
     })
     

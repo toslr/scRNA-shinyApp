@@ -75,3 +75,24 @@ $(document).ready(function() {
     subtree: true 
   });
 });
+
+// Handler for updating sample checkboxes programmatically
+Shiny.addCustomMessageHandler("updateSampleCheckboxes", function(message) {
+  const selectedSamples = message.samples;
+  
+  // Find all sample checkboxes
+  const checkboxes = document.querySelectorAll('input.sample-select');
+  
+  // Update each checkbox
+  checkboxes.forEach(function(checkbox) {
+    const gsm = checkbox.getAttribute('data-gsm');
+    checkbox.checked = selectedSamples.includes(gsm);
+  });
+  
+  // Also update the "select all" checkbox
+  const selectAllCheckbox = document.getElementById('select-all-samples');
+  if (selectAllCheckbox) {
+    selectAllCheckbox.checked = checkboxes.length > 0 && 
+      Array.from(checkboxes).every(cb => cb.checked);
+  }
+});

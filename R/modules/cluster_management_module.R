@@ -206,6 +206,27 @@ clusterManagementServer <- function(id, clustered_seurat) {
     list(
       getClusterLabels = reactive({ state$cluster_labels }),
       getActiveStatus = reactive({ state$active_clusters }),
+      getFullState = function() {
+        list(
+          cluster_labels = state$cluster_labels,
+          active_clusters = state$active_clusters,
+          all_clusters = state$all_clusters,
+          input_values = state$input_values
+        )
+      },
+      setFullState = function(saved_state) {
+        if (!is.null(saved_state)) {
+          if (!is.null(saved_state$cluster_labels)) {
+            state$cluster_labels <- saved_state$cluster_labels
+          }
+          if (!is.null(saved_state$active_clusters)) {
+            state$active_clusters <- saved_state$active_clusters
+          }
+          if (!is.null(saved_state$input_values)) {
+            state$input_values <- saved_state$input_values
+          }
+        }
+      },
       getActiveClusterIds = reactive({
         if (is.null(state$active_clusters)) return(NULL)
         as.numeric(names(state$active_clusters[unlist(state$active_clusters) == TRUE]))

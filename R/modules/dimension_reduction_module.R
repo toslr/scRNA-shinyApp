@@ -1210,10 +1210,27 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       }
     )
     
+    setClusteredData <- function(new_data) {
+      if (!is.null(new_data)) {
+        values$clustered_seurat <- new_data
+        
+        # Update derived states
+        if ("seurat_clusters" %in% colnames(new_data@meta.data)) {
+          values$clustering_done <- TRUE
+        }
+        
+        if (any(c("umap", "umap2d", "umap3d") %in% names(new_data@reductions))) {
+          values$dims_confirmed <- TRUE
+          values$seurat_with_umap <- new_data
+        }
+      }
+    }
+    
     # Return the clustered Seurat object along with the state restoration method
     return(list(
       data = reactive({ values$clustered_seurat }),
-      restoreState = restoreState
+      restoreState = restoreState,
+      setClusteredData = setClusteredData
     ))
   })
 }
