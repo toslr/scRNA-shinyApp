@@ -294,3 +294,138 @@ createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels = NULL, activ
       theme_void()
   })
 }
+
+#' @title Create Gene Expression Boxplot with Statistics
+#' @description Creates a boxplot of gene expression across clusters or conditions with statistical
+#'   significance annotations between groups.
+#' @param seurat_obj Seurat object containing the data
+#' @param gene_id String ID of the gene to visualize
+#' @param group_by String variable to group by (default: "seurat_clusters")
+#' @param comparisons List of pairs for statistical comparison (default: NULL)
+#' @param active_groups Optional vector of active groups to include (default: NULL)
+#' @param cluster_labels Optional named vector of labels for groups (default: NULL)
+#' @return A ggplot object with the boxplot visualization
+#' @export
+createExpressionBoxplot <- function(seurat_obj, gene_id, group_by = "seurat_clusters",
+                                    comparisons = NULL, active_groups = NULL, 
+                                    cluster_labels = NULL) {
+  # Safety check for gene existence in the dataset
+  if (is.null(gene_id) || gene_id == "" || !(gene_id %in% rownames(seurat_obj))) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = paste("Gene not found in dataset. Please try another gene.")) + 
+             theme_void())
+  }
+  
+  # Get gene symbol if available
+  gene_symbol <- if (!is.null(seurat_obj@misc$gene_mapping) && 
+                     gene_id %in% names(seurat_obj@misc$gene_mapping) &&
+                     !is.na(seurat_obj@misc$gene_mapping[gene_id])) {
+    seurat_obj@misc$gene_mapping[gene_id]
+  } else {
+    gene_id
+  }
+  
+  # Handle group variable
+  if (!(group_by %in% colnames(seurat_obj@meta.data))) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = paste("Group variable", group_by, "not found in metadata")) + 
+             theme_void())
+  }
+  
+  # Ensure cluster_labels is not a function (reactive value)
+  if (is.function(cluster_labels)) {
+    tryCatch({
+      cluster_labels <- cluster_labels()
+    }, error = function(e) {
+      cluster_labels <- NULL
+    })
+  }
+  
+  # Create default group labels if not provided
+  if (group_by == "seurat_clusters" && is.null(cluster_labels)) {
+    unique_groups <- sort(unique(seurat_obj[[group_by]]))
+    cluster_labels <- setNames(
+      paste("Cluster", unique_groups),
+      as.character(unique_groups)
+    )
+  }
+  
+  # If active_groups is NULL or empty, use all available groups
+  if (is.null(active_groups) || length(active_groups) == 0) {
+    active_groups <- unique(seurat_obj[[group_by]])
+  }
+  
+  # Filter by active groups
+  cells_to_keep <- seurat_obj[[group_by]] %in% active_groups
+  
+  # Check if any cells match the filter
+  if (sum(cells_to_keep) == 0) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = "No cells match the active groups selection") + 
+             theme_void())
+  }
+  
+  # Subset the Seurat object
+  seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+  
+  # Get expression data
+  expr_data <- GetAssayData(seurat_obj, slot = "data")[gene_id, ]
+  
+  # Create data frame for plotting
+  plot_data <- data.frame(
+    Expression = expr_data,
+    Group = seurat_obj[[group_by]],
+    stringsAsFactors = FALSE
+  )
+  
+  # Convert Group to factor with proper labels if provided
+  if (group_by == "seurat_clusters" && !is.null(cluster_labels)) {
+    # Create a mapping function that uses cluster_labels when available
+    group_labels <- sapply(plot_data$Group, function(x) {
+      group_key <- as.character(x)
+      if (group_key %in% names(cluster_labels)) {
+        cluster_labels[[group_key]]
+      } else {
+        if (group_by == "seurat_clusters") {
+          paste("Cluster", x)
+        } else {
+          as.character(x)
+        }
+      }
+    })
+    plot_data$Group <- factor(group_labels)
+  } else {
+    plot_data$Group <- factor(plot_data$Group)
+  }
+  
+  # Create base boxplot
+  p <- ggplot(plot_data, aes(x = Group, y = Expression)) +
+    geom_boxplot(outlier.size = 0.5, fill = "lightblue") +
+    # Add individual points for better visualization
+    geom_jitter(width = 0.2, height = 0, size = 0.5, alpha = 0.3) +
+    labs(title = paste("Expression of", gene_symbol),
+         y = "Normalized expression",
+         x = NULL) +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          plot.title = element_text(size = 14, face = "bold"),
+          axis.title = element_text(size = 12))
+  
+  # Add statistical comparisons if requested
+  if (!is.null(comparisons) && length(comparisons) > 0) {
+    # Check if we have the ggpubr package available
+    if (!requireNamespace("ggpubr", quietly = TRUE)) {
+      p <- p + labs(subtitle = "Install ggpubr package for statistical annotations")
+    } else {
+      # Add statistical comparisons
+      p <- ggpubr::stat_compare_means(comparisons = comparisons, 
+                                      method = "wilcox.test",
+                                      label = "p.format")(p)
+    }
+  }
+  
+  return(p)
+}

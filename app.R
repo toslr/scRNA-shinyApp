@@ -17,6 +17,7 @@ library(plotly)
 library(htmlwidgets)
 library(RColorBrewer)
 library(fontawesome)
+library(ggpubr)
 
 # Source metadata module
 source("R/modules/metadata_module.R")
