@@ -67,3 +67,85 @@ restorePcaUI <- function(pca_params, session) {
   
   return(FALSE)
 }
+
+#' @title Restore Clustering UI State
+#' @description Restores the clustering UI state from loaded data
+#' @param clustering_params List of clustering parameters from saved state
+#' @param session Shiny session object
+#' @return Boolean indicating if clustering was restored
+restoreClusteringUI <- function(clustering_params, session) {
+  if (is.null(clustering_params)) return(FALSE)
+  
+  tryCatch({
+    # Update resolution input
+    if (!is.null(clustering_params$resolution)) {
+      updateNumericInput(session, "dimRed-resolution", value = clustering_params$resolution)
+    }
+    
+    # If clustering was done, trigger the button click
+    if (!is.null(clustering_params$clustering_done) && clustering_params$clustering_done) {
+      shinyjs::delay(300, {
+        shinyjs::click("dimRed-runClustering")
+      })
+      return(TRUE)
+    }
+  }, error = function(e) {
+    print(paste("Error restoring clustering UI:", e$message))
+  })
+  
+  return(FALSE)
+}
+
+#' @title Restore DE Analysis UI State
+#' @description Restores the DE analysis UI state from loaded data
+#' @param de_params List of DE parameters from saved state
+#' @param session Shiny session object
+#' @return Boolean indicating if DE analysis was restored
+restoreDEAnalysisUI <- function(de_params, session) {
+  if (is.null(de_params)) return(FALSE)
+  
+  tryCatch({
+    # Update DE inputs
+    if (!is.null(de_params$target_cluster_all)) {
+      updateSelectInput(session, "de-targetClusterAll", selected = de_params$target_cluster_all)
+    }
+    
+    if (!is.null(de_params$target_cluster1)) {
+      updateSelectInput(session, "de-targetCluster1", selected = de_params$target_cluster1)
+    }
+    
+    if (!is.null(de_params$target_cluster2)) {
+      updateSelectInput(session, "de-targetCluster2", selected = de_params$target_cluster2)
+    }
+    
+    if (!is.null(de_params$genes_per_cluster)) {
+      updateNumericInput(session, "de-genesPerCluster", value = de_params$genes_per_cluster)
+    }
+    
+    # If DE analysis was done, trigger the appropriate button based on analysis type
+    if (!is.null(de_params$de_analysis_done) && de_params$de_analysis_done) {
+      if (!is.null(de_params$analysis_type)) {
+        if (de_params$analysis_type == "one_vs_all") {
+          shinyjs::delay(300, {
+            shinyjs::click("de-runDEAll")
+          })
+          return(TRUE)
+        } else if (de_params$analysis_type == "pairwise") {
+          shinyjs::delay(300, {
+            shinyjs::click("de-runDEPair")
+          })
+          return(TRUE)
+        } else if (de_params$analysis_type == "general_heatmap") {
+          shinyjs::delay(300, {
+            shinyjs::click("de-runGeneralHeatmap")
+          })
+          return(TRUE)
+        }
+      }
+    }
+  }, error = function(e) {
+    print(paste("Error restoring DE UI:", e$message))
+  })
+  
+  return(FALSE)
+}

@@ -126,7 +126,7 @@ buildServer <- function() {
           
           # After QC is processed, restore PCA/dimension reduction state
           # Use a longer delay to ensure QC completes first
-          shinyjs::delay(1000, {
+          shinyjs::delay(10000, {
             incProgress(0.6, detail = "Restoring dimension reduction")
             
             if (!is.null(data$ui_state) && !is.null(data$ui_state$pca_params)) {
@@ -135,6 +135,29 @@ buildServer <- function() {
             
             incProgress(1.0, detail = "Restoration complete")
             showNotification("Analysis state fully restored", type = "message")
+          })
+          
+          # After PCA is restored, restore clustering if needed
+          shinyjs::delay(1500, {
+            incProgress(0.7, detail = "Restoring clustering")
+            
+            if (!is.null(data$ui_state) && !is.null(data$ui_state$clustering_params)) {
+              clustering_restored <- restoreClusteringUI(data$ui_state$clustering_params, session)
+              
+              # After clustering is restored, restore DE analysis if needed
+              if (clustering_restored) {
+                shinyjs::delay(1000, {
+                  incProgress(0.9, detail = "Restoring DE analysis")
+                  
+                  if (!is.null(data$ui_state) && !is.null(data$ui_state$de_params)) {
+                    restoreDEAnalysisUI(data$ui_state$de_params, session)
+                  }
+                  
+                  incProgress(1.0, detail = "Restoration complete")
+                  showNotification("Analysis state fully restored", type = "message")
+                })
+              }
+            }
           })
         })
       })

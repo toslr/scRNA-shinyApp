@@ -150,7 +150,7 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             # Get step completion status
             current_steps <- reactiveValuesToList(steps_completed)
             
-            # NEW: Capture QC parameter values from the global input
+            # Capture QC parameter values from the global input
             qc_params <- NULL
             tryCatch({
               qc_params <- list(
@@ -163,7 +163,7 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
               print(paste("Error capturing QC parameters:", e$message))
             })
             
-            # NEW: Capture PCA/UMAP parameters
+            # Capture PCA/UMAP parameters
             pca_params <- NULL
             tryCatch({
               dimred_complete <- FALSE
@@ -177,6 +177,35 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
               )
             }, error = function(e) {
               print(paste("Error capturing PCA parameters:", e$message))
+            })
+            
+            # Capture clustering parameters
+            clustering_params <- NULL
+            tryCatch({
+              clustering_params <- list(
+                resolution = input$`dimRed-resolution`,
+                clustering_done = !is.null(current_clustered) && 
+                  "seurat_clusters" %in% colnames(current_clustered@meta.data)
+              )
+            }, error = function(e) {
+              print(paste("Error capturing clustering parameters:", e$message))
+            })
+            
+            # Capture DE parameters
+            de_params <- NULL
+            tryCatch({
+              de_analysis_done <- !is.null(current_de_results) && nrow(current_de_results) > 0
+              
+              de_params <- list(
+                target_cluster_all = input$`de-targetClusterAll`,
+                target_cluster1 = input$`de-targetCluster1`,
+                target_cluster2 = input$`de-targetCluster2`,
+                genes_per_cluster = input$`de-genesPerCluster`,
+                de_analysis_done = de_analysis_done,
+                analysis_type = if(!is.null(de_module$analysis_state)) de_module$analysis_state() else NULL
+              )
+            }, error = function(e) {
+              print(paste("Error capturing DE parameters:", e$message))
             })
           })
           
@@ -194,7 +223,9 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             steps_completed = current_steps,
             ui_state = list(
               qc_params = qc_params,
-              pca_params = pca_params
+              pca_params = pca_params,
+              clustering_params = clustering_params,
+              de_params = de_params
             )
           )
           
