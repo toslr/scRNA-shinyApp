@@ -185,6 +185,18 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
               if (!is.null(cluster_management) && is.list(cluster_management) && 
                   "getFullState" %in% names(cluster_management) && is.function(cluster_management$getFullState)) {
                 cluster_management_state <- cluster_management$getFullState()
+                
+                # Log what we're saving
+                print("Saving cluster management state:")
+                print(paste("Number of clusters:", length(cluster_management_state$all_clusters)))
+                print(paste("Active clusters:", paste(names(cluster_management_state$active_clusters)[
+                  unlist(cluster_management_state$active_clusters) == TRUE], collapse = ", ")))
+                
+                # For each cluster, log its active status
+                for (cluster in names(cluster_management_state$active_clusters)) {
+                  print(paste("Saving cluster", cluster, "active status:", 
+                              cluster_management_state$active_clusters[[cluster]]))
+                }
               }
             }, error = function(e) {
               print(paste("Error getting cluster management state:", e$message))

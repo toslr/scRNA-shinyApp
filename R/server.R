@@ -93,16 +93,17 @@ buildServer <- function() {
                                       condition_management,
                                       cluster_management)
     
+    loading_in_progress <- reactiveVal(FALSE)
+    
     # Handle loaded analysis data with enhanced UI restoration
     observe({
       data <- loaded_analysis()
       if (is.null(data)) return()
       
-      # Verify we have some of the key components
-      if (is.null(data$seurat_data) && is.null(data$processed_seurat) && is.null(data$clustered_seurat)) {
-        showNotification("Warning: Loaded analysis may be incomplete", type = "warning")
-        return()
-      }
+      # Clear any previous notifications
+      #session$flushReact()
+      
+      print("Loading saved analysis...")
       
       # Start a progress indication
       withProgress(message = 'Restoring analysis state...', value = 0, {
@@ -119,25 +120,10 @@ buildServer <- function() {
           data_input(data$seurat_data)
         }
         
-        # Update QC parameters in UI (but don't trigger processing)
-        incProgress(0.3, detail = "Restoring QC state")
-        if (!is.null(data$ui_state) && !is.null(data$ui_state$qc_params)) {
-          qc_params <- data$ui_state$qc_params
-          updateNumericInput(session, "qc-minFeature", value = qc_params$minFeature)
-          updateNumericInput(session, "qc-maxFeature", value = qc_params$maxFeature)
-          updateNumericInput(session, "qc-maxMT", value = qc_params$maxMT)
-        }
-        
         # CRITICAL: Directly update the processed Seurat object without triggering computation
         incProgress(0.4, detail = "Restoring processed data")
         if (is.list(qc_module) && is.function(qc_module$setProcessedData) && !is.null(data$processed_seurat)) {
           qc_module$setProcessedData(data$processed_seurat)
-        }
-        
-        # Update dimension reduction parameters
-        incProgress(0.6, detail = "Restoring dimension reduction")
-        if (!is.null(data$ui_state) && !is.null(data$ui_state$pca_params)) {
-          updateNumericInput(session, "dimRed-nDims", value = data$ui_state$pca_params$nDims)
         }
         
         # CRITICAL: Directly update the clustered Seurat object without triggering computation
@@ -146,53 +132,53 @@ buildServer <- function() {
           dimred_module$setClusteredData(data$clustered_seurat)
         }
         
-        # Restore clustering parameters without triggering computation
-        if (!is.null(data$ui_state) && !is.null(data$ui_state$clustering_params)) {
-          updateNumericInput(session, "dimRed-resolution", value = data$ui_state$clustering_params$resolution)
-        }
+        # Restore management module states with a progressive sequence of delays
+        # This ensures each module gets updated without interfering with others
         
-        # Restore management module states
-        incProgress(0.85, detail = "Restoring management states")
-        
-        # Restore sample management state
+        # First restore sample management
+        incProgress(0.8, detail = "Restoring sample management")
         if (!is.null(data$sample_management_state) && 
             is.list(sample_management) && 
             is.function(sample_management$setFullState)) {
           sample_management$setFullState(data$sample_management_state)
         }
         
-        # Restore condition management state
-        if (!is.null(data$condition_management_state) && 
-            is.list(condition_management) && 
-            is.function(condition_management$setFullState)) {
-          condition_management$setFullState(data$condition_management_state)
-        }
+        # After a delay, restore condition management
+        shinyjs::delay(700, {
+          incProgress(0.85, detail = "Restoring condition management")
+          if (!is.null(data$condition_management_state) && 
+              is.list(condition_management) && 
+              is.function(condition_management$setFullState)) {
+            condition_management$setFullState(data$condition_management_state)
+          }
+        })
         
-        # Restore cluster management state
-        if (!is.null(data$cluster_management_state) && 
-            is.list(cluster_management) && 
-            is.function(cluster_management$setFullState)) {
-          cluster_management$setFullState(data$cluster_management_state)
-        }
+        # After another delay, restore cluster management
+        shinyjs::delay(1400, {
+          incProgress(0.9, detail = "Restoring cluster management")
+          if (!is.null(data$cluster_management_state) && 
+              is.list(cluster_management) && 
+              is.function(cluster_management$setFullState)) {
+            print("Setting cluster management full state...")
+            cluster_management$setFullState(data$cluster_management_state)
+          }
+        })
         
-        # Restore DE analysis parameters and results if available
-        incProgress(0.9, detail = "Restoring DE analysis")
-        if (is.list(de_module) && is.function(de_module$setResults) && !is.null(data$de_results)) {
-          # Call setResults with proper arguments
-          tryCatch({
+        # Restore DE analysis after all other elements
+        shinyjs::delay(2100, {
+          incProgress(0.95, detail = "Restoring DE analysis")
+          if (is.list(de_module) && is.function(de_module$setResults) && !is.null(data$de_results)) {
             de_module$setResults(
               data$de_results, 
               data$de_analysis_type, 
               data$de_heatmap_data, 
               data$de_general_heatmap_genes
             )
-          }, error = function(e) {
-            print(paste("Error setting DE results:", e$message))
-          })
-        }
-        
-        incProgress(1.0, detail = "Restoration complete")
-        showNotification("Analysis state fully restored", type = "message")
+          }
+          
+          incProgress(1.0, detail = "Restoration complete")
+          showNotification("Analysis state fully restored", type = "message")
+        })
       })
     })
     
