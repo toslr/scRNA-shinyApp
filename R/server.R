@@ -30,14 +30,41 @@ buildServer <- function() {
     condition_management <- conditionManagementServer("conditionManagement", seurat_data, metadata_module)
     
     # Chain the reactive values through the analysis modules
-    processed_seurat <- qcServer("qc", seurat_data, sample_management, condition_management)
+    qc_module <- qcServer("qc", seurat_data, sample_management, condition_management)
+    # Extract the reactive data from the module
+    processed_seurat <- reactive({
+      if (is.list(qc_module) && is.function(qc_module$data)) {
+        qc_module$data()
+      } else {
+        qc_module()
+      }
+    })
     
     cluster_management <- clusterManagementServer("clusterManagement", clustered_seurat = reactive({
-      if (!is.null(clustered_seurat())) return(clustered_seurat())
+      # Get the reactive data from dimred_module
+      if (!is.null(dimred_module) && is.list(dimred_module) && is.function(dimred_module$data)) {
+        return(dimred_module$data())
+      } else if (!is.null(clustered_seurat())) {
+        return(clustered_seurat())
+      }
       return(NULL)
     }))
     
-    clustered_seurat <- dimensionReductionServer("dimRed", processed_seurat, sample_management, condition_management, cluster_management)
+    # Initialize the dimension reduction module
+    dimred_module <- dimensionReductionServer("dimRed", 
+                                              processed_seurat, 
+                                              sample_management, 
+                                              condition_management, 
+                                              cluster_management)
+    
+    # Extract the reactive data from the dimred module
+    clustered_seurat <- reactive({
+      if (is.list(dimred_module) && is.function(dimred_module$data)) {
+        dimred_module$data()
+      } else {
+        dimred_module()
+      }
+    })
     
     de_module <- deAnalysisServer("de", clustered_seurat, cluster_management, sample_management, condition_management)
     
@@ -57,21 +84,60 @@ buildServer <- function() {
     loaded_analysis <- saveLoadServer("saveLoad", 
                                       seurat_data, 
                                       metadata_module, 
-                                      processed_seurat, 
-                                      clustered_seurat, 
+                                      qc_module, 
+                                      dimred_module, 
                                       de_module,
                                       steps_completed,
                                       session)
     
-    # Handle loaded analysis data
+    # Handle loaded analysis data with enhanced UI restoration
     observe({
       data <- loaded_analysis()
       if (is.null(data)) return()
       
-      # Update your data modules with the loaded data
-      if (!is.null(data$seurat_data)) {
-        data_input(data$seurat_data)  # Update the reactive value that seurat_data depends on
+      # Verify we have some of the key components
+      if (is.null(data$seurat_data) && is.null(data$processed_seurat)) {
+        showNotification("Warning: Loaded analysis may be incomplete", type = "warning")
+        return()
       }
+      
+      # Update data objects first
+      if (!is.null(data$seurat_data)) {
+        data_input(data$seurat_data)
+      }
+      
+      # Main UI restoration workflow with sequential delays
+      # This ensures each UI element is updated in the correct order
+      shinyjs::delay(500, {
+        withProgress(message = 'Restoring analysis state...', value = 0, {
+          # First restore QC parameters and simulate button click if needed
+          incProgress(0.3, detail = "Restoring QC parameters")
+          qc_processed <- FALSE
+          
+          if (!is.null(data$ui_state) && !is.null(data$ui_state$qc_params)) {
+            qc_processed <- restoreQcUI(data$ui_state$qc_params, session)
+          }
+          
+          # If QC wasn't processed in the saved state, we're done
+          if (!qc_processed) {
+            incProgress(1.0, detail = "Restoration complete")
+            return()
+          }
+          
+          # After QC is processed, restore PCA/dimension reduction state
+          # Use a longer delay to ensure QC completes first
+          shinyjs::delay(1000, {
+            incProgress(0.6, detail = "Restoring dimension reduction")
+            
+            if (!is.null(data$ui_state) && !is.null(data$ui_state$pca_params)) {
+              restorePcaUI(data$ui_state$pca_params, session)
+            }
+            
+            incProgress(1.0, detail = "Restoration complete")
+            showNotification("Analysis state fully restored", type = "message")
+          })
+        })
+      })
     })
     
     # Render cluster controls UI
@@ -236,8 +302,8 @@ buildServer <- function() {
     })
     
     # Setup observers for tracking module completion status
-    setupObservers(steps_completed, seurat_data, metadata_module, processed_seurat, 
-                   clustered_seurat, de_module, sample_management, condition_management)
+    setupObservers(steps_completed, seurat_data, metadata_module, qc_module, 
+                   dimred_module, de_module, sample_management, condition_management)
     
     # Setup dynamic section rendering
     setupSections(input, output, seurat_data, metadata_handler, processed_seurat, 

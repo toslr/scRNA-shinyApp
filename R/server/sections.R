@@ -1,4 +1,4 @@
-# R/server/sections.R
+# R/server/sections.R - Updated version
 
 #' @title Setup Main Content Sections
 #' @description Sets up the main content sections of the single-cell RNA-seq analysis application.
@@ -18,7 +18,6 @@ setupSections <- function(input, output, seurat_data, metadata_handler, processe
   
   # Metadata section
   output$metadataSection <- renderUI({
-    # Call the reactive function to get metadata module
     print("Checking metadata handler")
     req(metadata_handler)
     metadata_module <- metadata_handler()
@@ -56,9 +55,24 @@ setupSections <- function(input, output, seurat_data, metadata_handler, processe
   # DE section
   output$deSection <- renderUI({
     req(clustered_seurat())
-    req("seurat_clusters" %in% colnames(clustered_seurat()@meta.data))
-    valid_umap_exists <- any(c("umap2d", "umap3d", "umap") %in% names(clustered_seurat()@reductions))
+    
+    # Check if we have clustering information in the Seurat object
+    valid_clustering <- FALSE
+    valid_umap_exists <- FALSE
+    
+    tryCatch({
+      # Check if seurat_clusters column exists in metadata
+      valid_clustering <- "seurat_clusters" %in% colnames(clustered_seurat()@meta.data)
+      
+      # Check if umap reductions exist
+      valid_umap_exists <- any(c("umap2d", "umap3d", "umap") %in% names(clustered_seurat()@reductions))
+    }, error = function(e) {
+      print(paste("Error checking clustered_seurat:", e$message))
+    })
+    
+    req(valid_clustering)
     req(valid_umap_exists)
+    
     div(id = "de-section",
         h3(class = "section-header", "Differential Expression"),
         div(class = "section-content",

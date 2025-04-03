@@ -75,6 +75,31 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       right_plot_update_trigger = runif(1)
     )
     
+    # Method to restore state from loaded data
+    restoreState <- function(n_dims, dims_confirmed) {
+      # Update UI to reflect loaded state
+      if (!is.null(n_dims)) {
+        updateNumericInput(session, "nDims", value = n_dims)
+      }
+      
+      # If dimensions were confirmed in the saved state, update reactiveValues
+      if (!is.null(dims_confirmed) && dims_confirmed == TRUE) {
+        values$dims_confirmed <- TRUE
+        
+        # Make sure we have the processed Seurat object
+        if (!is.null(processed_seurat())) {
+          # Trigger UMAP computation silently
+          withProgress(message = 'Computing UMAPs...', {
+            # Apply sample and condition filtering if needed
+            filtered_seurat <- processed_seurat()
+            
+            # Process UMAPs
+            values$seurat_with_umap <- process_umaps(filtered_seurat, n_dims)
+          })
+        }
+      }
+    }
+    
     # Watch for changes in sample management active status
     observe({
       req(sample_management)
@@ -1185,8 +1210,11 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       }
     )
     
-    # Return the clustered Seurat object
-    return(reactive({ values$clustered_seurat }))
+    # Return the clustered Seurat object along with the state restoration method
+    return(list(
+      data = reactive({ values$clustered_seurat }),
+      restoreState = restoreState
+    ))
   })
 }
 

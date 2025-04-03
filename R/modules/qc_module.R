@@ -40,7 +40,10 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       filtered_samples = NULL,
       filtered_conditions = NULL,
       condition_column = NULL,
-      plot_update_trigger = runif(1)
+      plot_update_trigger = runif(1),
+      min_feature = 500,
+      max_feature = 5000,
+      max_mt = 5
     )
     
     # Watch for changes in sample management active status
@@ -141,12 +144,28 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
     # Render filter controls
     output$filterControls <- renderUI({
       req(seurat_data())
-      createFilterControls(session)
+      createFilterControls(session, values)
+    })
+    
+    # Observers to update the stored filter parameters when inputs change
+    observeEvent(input$minFeature, {
+      values$min_feature <- input$minFeature
+    })
+    observeEvent(input$maxFeature, {
+      values$max_feature <- input$maxFeature
+    })
+    observeEvent(input$maxMT, {
+      values$max_mt <- input$maxMT
     })
     
     # Process data when the button is clicked
     observeEvent(input$processSeurat, {
       req(seurat_data(), input$minFeature, input$maxFeature, input$maxMT)
+      
+      # Store current parameter values
+      values$min_feature <- input$minFeature
+      values$max_feature <- input$maxFeature
+      values$max_mt <- input$maxMT
       
       # Create a filtered Seurat object
       filtered_seurat <- seurat_data()
@@ -198,7 +217,64 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       values$filtered_data
     })
     
-    return(processed_seurat)
+    processWithParameters <- function(min_feature, max_feature, max_mt) {
+      req(seurat_data())
+      
+      # Update UI inputs to match the provided parameters
+      updateNumericInput(session, "minFeature", value = min_feature)
+      updateNumericInput(session, "maxFeature", value = max_feature)
+      updateNumericInput(session, "maxMT", value = max_mt)
+      
+      # Update internal values
+      values$min_feature <- min_feature
+      values$max_feature <- max_feature
+      values$max_mt <- max_mt
+      
+      # Process data with these parameters
+      filtered_seurat <- seurat_data()
+      
+      # Apply sample filtering if available
+      if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+        cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        }
+      }
+      
+      # Apply condition filtering if available
+      if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+          length(values$filtered_conditions) > 0 && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        
+        cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        }
+      }
+      
+      # Process with the specified parameters
+      values$filtered_data <- processQCFiltering(
+        filtered_seurat, 
+        min_feature, 
+        max_feature, 
+        max_mt
+      )
+      
+      return(values$filtered_data)
+    }
+    
+    # Return a list with the processed data and methods for state restoration
+    return(list(
+      data = processed_seurat,
+      getFilterParams = function() {
+        list(
+          min_feature = values$min_feature,
+          max_feature = values$max_feature,
+          max_mt = values$max_mt
+        )
+      },
+      processWithParameters = processWithParameters
+    ))
   })
 }
 
@@ -251,7 +327,7 @@ saveQCPlot <- function(file, plot) {
 #' @param session The current Shiny session
 #' @return A UI element with filter controls
 #' @keywords internal
-createFilterControls <- function(session) {
+createFilterControls <- function(session, values) {
   ns <- session$ns
   tagList(
     tags$div(
@@ -260,9 +336,9 @@ createFilterControls <- function(session) {
       tags$strong("Please adjust filtering parameters:"),
       tags$br(),
       tags$br(),
-      numericInput(ns("minFeature"), "Minimum Features:", 500),
-      numericInput(ns("maxFeature"), "Maximum Features:", 5000),
-      numericInput(ns("maxMT"), "Maximum MT %:", 5),
+      numericInput(ns("minFeature"), "Minimum Features:", values$min_feature),
+      numericInput(ns("maxFeature"), "Maximum Features:", values$max_feature),
+      numericInput(ns("maxMT"), "Maximum MT %:", values$max_mt),
       actionButton(ns("processSeurat"), "Filter and run PCA")
     )
   )

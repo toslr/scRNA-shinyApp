@@ -55,5 +55,7 @@ source("R/server/navigation.R")
 source("R/server/sections.R")
 source("R/server.R")
 source("R/ui.R")
+source("R/server/restore_ui.R")
+
 
 shinyApp(ui = buildUI(), server = buildServer())
