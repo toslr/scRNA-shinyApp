@@ -43,7 +43,8 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       plot_update_trigger = runif(1),
       min_feature = 500,
       max_feature = 5000,
-      max_mt = 5
+      max_mt = 5,
+      sample_labels = NULL  # Add this to track sample labels
     )
     
     # Watch for changes in sample management active status
@@ -56,6 +57,22 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       # Update filtered samples
       if (!identical(values$filtered_samples, active_samples)) {
         values$filtered_samples <- active_samples
+        
+        # Force re-rendering of plots
+        values$plot_update_trigger <- runif(1)
+      }
+    })
+    
+    # Watch for changes in sample management labels
+    observe({
+      req(sample_management)
+      
+      # Get current sample labels
+      current_labels <- sample_management$getSampleLabels()
+      
+      # Update if they've changed
+      if (!identical(values$sample_labels, current_labels)) {
+        values$sample_labels <- current_labels
         
         # Force re-rendering of plots
         values$plot_update_trigger <- runif(1)
@@ -116,6 +133,20 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       # Apply sample limit to prevent overcrowding (get first 5 samples)
       filtered_seurat <- getSamplesToPlot(filtered_seurat)
       
+      # If we have sample labels, apply them to the plot data
+      if (!is.null(values$sample_labels)) {
+        # For each sample in the dataset, update its display name if we have a label
+        current_samples <- unique(filtered_seurat$sample)
+        for (sample in current_samples) {
+          if (sample %in% names(values$sample_labels)) {
+            # Create a temporary variable to use for plotting
+            filtered_seurat$sample_label <- filtered_seurat$sample
+            # Replace sample IDs with their labels
+            filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+          }
+        }
+      }
+      
       # Return the filtered data
       return(filtered_seurat)
     })
@@ -130,6 +161,8 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
     output$qcPlot <- renderPlot({
       qc_plot()
     })
+    
+    # The rest of your code remains the same...
     
     # Download handler for the QC plot
     output$downloadQCPlot <- downloadHandler(
@@ -313,10 +346,20 @@ getSamplesToPlot <- function(seurat_obj) {
 #' @return A ggplot object with violin plots for QC metrics
 #' @keywords internal
 createQCPlot <- function(seurat_obj) {
-  VlnPlot(seurat_obj, 
-          features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
-          group.by = "sample",
-          ncol = 3)
+  # Check if we have sample_label column
+  if ("sample_label" %in% colnames(seurat_obj@meta.data)) {
+    # Use sample_label instead of sample for grouping
+    VlnPlot(seurat_obj, 
+            features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
+            group.by = "sample_label",
+            ncol = 3)
+  } else {
+    # Fall back to original behavior
+    VlnPlot(seurat_obj, 
+            features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
+            group.by = "sample",
+            ncol = 3)
+  }
 }
 
 #' @title Save QC Plot

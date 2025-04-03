@@ -158,33 +158,52 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
                                 active_items = NULL, ...) {
   # Handle different coloring options
   if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
-    # Color by cluster with optional filtering
-    if (!is.null(active_items) && length(active_items) > 0) {
-      # Filter to only show active clusters
-      cells_to_keep <- seurat_obj$seurat_clusters %in% as.numeric(active_items)
+    # Check if we have a cluster_label column to use instead
+    if ("cluster_label" %in% colnames(seurat_obj@meta.data)) {
+      # Create a factor with levels in numerical order
+      cluster_ids <- as.character(seurat_obj$seurat_clusters)
+      unique_clusters <- sort(as.numeric(unique(cluster_ids)))
       
-      # Check if any cells match the filter
-      if (!any(cells_to_keep)) {
-        # If no cells match, return a message plot
-        return(ggplot() + 
-                 annotate("text", x = 0.5, y = 0.5, 
-                          label = "No cells match the selected clusters") + 
-                 theme_void())
+      # Create an ordering map to maintain numeric order
+      ordering_map <- data.frame(
+        cluster_id = as.character(unique_clusters),
+        label = NA,
+        stringsAsFactors = FALSE
+      )
+      
+      # Map the cluster labels to the ordering
+      for (i in 1:nrow(ordering_map)) {
+        cluster_id <- ordering_map$cluster_id[i]
+        # Find the first matching label
+        matching_idx <- which(cluster_ids == cluster_id)[1]
+        if (!is.na(matching_idx)) {
+          ordering_map$label[i] <- seurat_obj$cluster_label[matching_idx]
+        }
       }
       
-      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
-    } else {
-      plot_obj <- seurat_obj
+      # Set the factor levels in numerical order
+      seurat_obj$cluster_label <- factor(seurat_obj$cluster_label, 
+                                         levels = ordering_map$label[!is.na(ordering_map$label)])
+      
+      return(DimPlot(seurat_obj, 
+                     reduction = reduction, 
+                     group.by = "cluster_label",
+                     label = FALSE,  # No point labels
+                     pt.size = pt_size,
+                     ...))
+      } 
+    } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
+    # Check if we have a sample_label column to use instead
+    if ("sample_label" %in% colnames(seurat_obj@meta.data)) {
+      # Use the sample_label column for visualization  
+      return(DimPlot(seurat_obj, 
+                     reduction = reduction,
+                     group.by = "sample_label", 
+                     pt.size = pt_size,
+                     ...))
     }
     
-    return(DimPlot(plot_obj, 
-                   reduction = reduction, 
-                   label = label,
-                   pt.size = pt_size,
-                   ...))
-    
-  } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
-    # Color by sample with optional filtering
+    # Otherwise, use standard sample coloring with optional filtering
     if (!is.null(active_items) && length(active_items) > 0) {
       # Filter to only show active samples
       cells_to_keep <- seurat_obj$sample %in% active_items
@@ -272,14 +291,44 @@ create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "u
   umap_data <- Embeddings(plot_obj[[reduction]])
   
   # Handle different coloring options
-  if (color_by == "cluster" && "seurat_clusters" %in% colnames(plot_obj@meta.data)) {
-    color_var <- as.factor(plot_obj$seurat_clusters)
+  if (color_by == "cluster" && "cluster_label" %in% colnames(plot_obj@meta.data)) {
+    # Get clusters in numeric order
+    cluster_ids <- as.character(plot_obj$seurat_clusters)
+    unique_clusters <- sort(as.numeric(unique(cluster_ids)))
+    
+    # Create a mapping to preserve numeric ordering
+    ordering_map <- data.frame(
+      cluster_id = as.character(unique_clusters),
+      label = NA,
+      stringsAsFactors = FALSE
+    )
+    
+    # Map the cluster labels to the ordering
+    for (i in 1:nrow(ordering_map)) {
+      cluster_id <- ordering_map$cluster_id[i]
+      # Find the first matching label
+      matching_idx <- which(cluster_ids == cluster_id)[1]
+      if (!is.na(matching_idx)) {
+        ordering_map$label[i] <- plot_obj$cluster_label[matching_idx]
+      }
+    }
+    
+    # Create ordered factor
+    ordered_levels <- ordering_map$label[!is.na(ordering_map$label)]
+    color_var <- factor(plot_obj$cluster_label, levels = ordered_levels)
     plot_title <- "3D UMAP - Colored by Clusters"
     hover_text <- paste("Cluster:", color_var)
   } else if (color_by == "sample" && "sample" %in% colnames(plot_obj@meta.data)) {
-    color_var <- as.factor(plot_obj$sample)
-    plot_title <- "3D UMAP - Colored by Sample"
-    hover_text <- paste("Sample:", color_var)
+    # Check if we have a sample_label column to use instead
+    if ("sample_label" %in% colnames(plot_obj@meta.data)) {
+      color_var <- as.factor(plot_obj$sample_label)
+      plot_title <- "3D UMAP - Colored by Sample"
+      hover_text <- paste("Sample:", color_var)
+    } else {
+      color_var <- as.factor(plot_obj$sample)
+      plot_title <- "3D UMAP - Colored by Sample"
+      hover_text <- paste("Sample:", color_var)
+    }
   } else if (color_by %in% colnames(plot_obj@meta.data)) {
     color_var <- as.factor(plot_obj@meta.data[[color_by]])
     plot_title <- paste0("3D UMAP - Colored by ", color_by)

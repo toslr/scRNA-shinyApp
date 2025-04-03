@@ -72,7 +72,9 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       filtered_condition = NULL,
       condition_column = NULL,
       left_plot_update_trigger = runif(1),
-      right_plot_update_trigger = runif(1)
+      right_plot_update_trigger = runif(1),
+      sample_labels = NULL,
+      cluster_labels = NULL,
     )
     
     # Method to restore state from loaded data
@@ -151,6 +153,40 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       # Force re-rendering of all plots by updating triggers
       values$left_plot_update_trigger <- runif(1)
       values$right_plot_update_trigger <- runif(1)
+    })
+    
+    # Watch for changes in sample management labels
+    observe({
+      req(sample_management)
+      
+      # Get current sample labels
+      current_labels <- sample_management$getSampleLabels()
+      
+      # Update if they've changed
+      if (!identical(values$sample_labels, current_labels)) {
+        values$sample_labels <- current_labels
+        
+        # Force re-rendering of plots
+        values$left_plot_update_trigger <- runif(1)
+        values$right_plot_update_trigger <- runif(1)
+      }
+    })
+    
+    # Watch for changes in cluster management labels
+    observe({
+      req(cluster_management)
+      
+      # Get current cluster labels
+      current_labels <- cluster_management$getClusterLabels()
+      
+      # Update if they've changed
+      if (!identical(values$cluster_labels, current_labels)) {
+        values$cluster_labels <- current_labels
+        
+        # Force re-rendering of plots
+        values$left_plot_update_trigger <- runif(1)
+        values$right_plot_update_trigger <- runif(1)
+      }
     })
     
     # Find elbow point for optimal dimensions
@@ -838,6 +874,40 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Add sample_label column if we have sample labels
+      if (!is.null(values$sample_labels) && "sample" %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for sample labels
+        filtered_seurat$sample_label <- filtered_seurat$sample
+        # For each sample in the dataset, update its display name if we have a label
+        current_samples <- unique(filtered_seurat$sample)
+        for (sample in current_samples) {
+          if (sample %in% names(values$sample_labels)) {
+            # Replace sample IDs with their labels
+            filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+          }
+        }
+      }
+      
+      # Add cluster_label column if we have cluster labels
+      if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for cluster labels with format "N:abc"
+        filtered_seurat$cluster_label <- sapply(filtered_seurat$seurat_clusters, function(cluster) {
+          cluster_key <- as.character(cluster)
+          if (cluster_key %in% names(values$cluster_labels)) {
+            full_label <- values$cluster_labels[[cluster_key]]
+            # Get first 3 letters (if it has at least 3 characters)
+            short_label <- if (nchar(full_label) >= 3) {
+              substr(full_label, 1, 3)
+            } else {
+              full_label  # Use full label if less than 3 chars
+            }
+            paste0(cluster, ":", short_label)
+          } else {
+            paste0(cluster, ":Cl", cluster)  # Default format if no label
+          }
+        })
+      }
+      
       # Now get active items for the coloring-specific toggles
       active_items <- get_left_active_items()
       
@@ -903,6 +973,35 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Add sample_label column if we have sample labels
+      if (!is.null(values$sample_labels) && "sample" %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for sample labels
+        filtered_seurat$sample_label <- filtered_seurat$sample
+        # For each sample in the dataset, update its display name if we have a label
+        current_samples <- unique(filtered_seurat$sample)
+        for (sample in current_samples) {
+          if (sample %in% names(values$sample_labels)) {
+            # Replace sample IDs with their labels
+            filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+          }
+        }
+      }
+      
+      # Add cluster_label column if we have cluster labels
+      if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for cluster labels
+        filtered_seurat$cluster_label <- as.character(filtered_seurat$seurat_clusters)
+        # For each cluster in the dataset, update its display name if we have a label
+        current_clusters <- unique(filtered_seurat$seurat_clusters)
+        for (cluster in current_clusters) {
+          cluster_key <- as.character(cluster)
+          if (cluster_key %in% names(values$cluster_labels)) {
+            # Replace cluster IDs with their labels
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+          }
+        }
+      }
+      
       # Now get active items for the coloring-specific toggles
       active_items <- get_left_active_items()
       
@@ -919,6 +1018,7 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       }
     })
     
+    # Right UMAP plot functions
     output$rightUMAPPlot <- renderPlot({
       req(values$clustered_seurat, values$right_umap_type == "2D")
       
@@ -965,6 +1065,35 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
         if (any(cells_to_keep)) {
           filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        }
+      }
+      
+      # Add sample_label column if we have sample labels
+      if (!is.null(values$sample_labels) && "sample" %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for sample labels
+        filtered_seurat$sample_label <- filtered_seurat$sample
+        # For each sample in the dataset, update its display name if we have a label
+        current_samples <- unique(filtered_seurat$sample)
+        for (sample in current_samples) {
+          if (sample %in% names(values$sample_labels)) {
+            # Replace sample IDs with their labels
+            filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+          }
+        }
+      }
+      
+      # Add cluster_label column if we have cluster labels
+      if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for cluster labels
+        filtered_seurat$cluster_label <- as.character(filtered_seurat$seurat_clusters)
+        # For each cluster in the dataset, update its display name if we have a label
+        current_clusters <- unique(filtered_seurat$seurat_clusters)
+        for (cluster in current_clusters) {
+          cluster_key <- as.character(cluster)
+          if (cluster_key %in% names(values$cluster_labels)) {
+            # Replace cluster IDs with their labels
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+          }
         }
       }
       
@@ -1033,6 +1162,35 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Add sample_label column if we have sample labels
+      if (!is.null(values$sample_labels) && "sample" %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for sample labels
+        filtered_seurat$sample_label <- filtered_seurat$sample
+        # For each sample in the dataset, update its display name if we have a label
+        current_samples <- unique(filtered_seurat$sample)
+        for (sample in current_samples) {
+          if (sample %in% names(values$sample_labels)) {
+            # Replace sample IDs with their labels
+            filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+          }
+        }
+      }
+      
+      # Add cluster_label column if we have cluster labels
+      if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for cluster labels
+        filtered_seurat$cluster_label <- as.character(filtered_seurat$seurat_clusters)
+        # For each cluster in the dataset, update its display name if we have a label
+        current_clusters <- unique(filtered_seurat$seurat_clusters)
+        for (cluster in current_clusters) {
+          cluster_key <- as.character(cluster)
+          if (cluster_key %in% names(values$cluster_labels)) {
+            # Replace cluster IDs with their labels
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+          }
+        }
+      }
+      
       # Now get active items for the coloring-specific toggles
       active_items <- get_right_active_items()
       
@@ -1086,6 +1244,35 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
           if (any(cells_to_keep)) {
             filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Add sample_label column if we have sample labels
+        if (!is.null(values$sample_labels) && "sample" %in% colnames(filtered_seurat@meta.data)) {
+          # Create temporary column for sample labels
+          filtered_seurat$sample_label <- filtered_seurat$sample
+          # For each sample in the dataset, update its display name if we have a label
+          current_samples <- unique(filtered_seurat$sample)
+          for (sample in current_samples) {
+            if (sample %in% names(values$sample_labels)) {
+              # Replace sample IDs with their labels
+              filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+            }
+          }
+        }
+        
+        # Add cluster_label column if we have cluster labels
+        if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
+          # Create temporary column for cluster labels
+          filtered_seurat$cluster_label <- as.character(filtered_seurat$seurat_clusters)
+          # For each cluster in the dataset, update its display name if we have a label
+          current_clusters <- unique(filtered_seurat$seurat_clusters)
+          for (cluster in current_clusters) {
+            cluster_key <- as.character(cluster)
+            if (cluster_key %in% names(values$cluster_labels)) {
+              # Replace cluster IDs with their labels
+              filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+            }
           }
         }
         
@@ -1159,6 +1346,35 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
           if (any(cells_to_keep)) {
             filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Add sample_label column if we have sample labels
+        if (!is.null(values$sample_labels) && "sample" %in% colnames(filtered_seurat@meta.data)) {
+          # Create temporary column for sample labels
+          filtered_seurat$sample_label <- filtered_seurat$sample
+          # For each sample in the dataset, update its display name if we have a label
+          current_samples <- unique(filtered_seurat$sample)
+          for (sample in current_samples) {
+            if (sample %in% names(values$sample_labels)) {
+              # Replace sample IDs with their labels
+              filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+            }
+          }
+        }
+        
+        # Add cluster_label column if we have cluster labels
+        if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
+          # Create temporary column for cluster labels
+          filtered_seurat$cluster_label <- as.character(filtered_seurat$seurat_clusters)
+          # For each cluster in the dataset, update its display name if we have a label
+          current_clusters <- unique(filtered_seurat$seurat_clusters)
+          for (cluster in current_clusters) {
+            cluster_key <- as.character(cluster)
+            if (cluster_key %in% names(values$cluster_labels)) {
+              # Replace cluster IDs with their labels
+              filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+            }
           }
         }
         
