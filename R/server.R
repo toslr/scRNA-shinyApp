@@ -100,9 +100,6 @@ buildServer <- function() {
       data <- loaded_analysis()
       if (is.null(data)) return()
       
-      # Clear any previous notifications
-      #session$flushReact()
-      
       print("Loading saved analysis...")
       
       # Start a progress indication
@@ -137,35 +134,39 @@ buildServer <- function() {
         
         # First restore sample management
         incProgress(0.8, detail = "Restoring sample management")
-        if (!is.null(data$sample_management_state) && 
-            is.list(sample_management) && 
-            is.function(sample_management$setFullState)) {
-          sample_management$setFullState(data$sample_management_state)
-        }
+        shinyjs::delay(300, {
+          if (!is.null(data$sample_management_state) && 
+              is.list(sample_management) && 
+              is.function(sample_management$setFullState)) {
+            print("Restoring sample management state...")
+            sample_management$setFullState(data$sample_management_state)
+          }
+        })
         
         # After a delay, restore condition management
-        shinyjs::delay(700, {
+        shinyjs::delay(1000, {
           incProgress(0.85, detail = "Restoring condition management")
           if (!is.null(data$condition_management_state) && 
               is.list(condition_management) && 
               is.function(condition_management$setFullState)) {
+            print("Restoring condition management state...")
             condition_management$setFullState(data$condition_management_state)
           }
         })
         
         # After another delay, restore cluster management
-        shinyjs::delay(1400, {
+        shinyjs::delay(1700, {
           incProgress(0.9, detail = "Restoring cluster management")
           if (!is.null(data$cluster_management_state) && 
               is.list(cluster_management) && 
               is.function(cluster_management$setFullState)) {
-            print("Setting cluster management full state...")
+            print("Restoring cluster management state...")
             cluster_management$setFullState(data$cluster_management_state)
           }
         })
         
         # Restore DE analysis after all other elements
-        shinyjs::delay(2100, {
+        shinyjs::delay(2400, {
           incProgress(0.95, detail = "Restoring DE analysis")
           if (is.list(de_module) && is.function(de_module$setResults) && !is.null(data$de_results)) {
             de_module$setResults(

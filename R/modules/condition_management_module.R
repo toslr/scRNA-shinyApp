@@ -27,18 +27,29 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Initialize state using reactiveValues for better state management
+    # Add loading locks
+    is_loading_state <- reactiveVal(FALSE)
+    ignore_input_changes <- reactiveVal(FALSE)
+    
+    # Use dedicated reactiveVals for stable storage
+    stable_condition_column <- reactiveVal(NULL)
+    stable_labels <- reactiveVal(list())
+    stable_active <- reactiveVal(list())
+    
+    # Initialize state
     state <- reactiveValues(
-      condition_column = NULL,
-      condition_labels = NULL,
-      active_conditions = NULL,
-      temp_labels = NULL,
       available_columns = NULL,
-      input_values = list()  # Added to track input values like in sample_management
+      temp_labels = NULL,
+      last_update = NULL
     )
     
     # Get available metadata columns
     observe({
+      # Skip if we're in loading state
+      if (is_loading_state()) {
+        return(NULL)
+      }
+      
       # Skip if no Seurat object
       if (is.null(seurat_data())) return(NULL)
       
@@ -54,19 +65,19 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       state$available_columns <- filtered_cols
       
       # Set default column selection if needed
-      if (is.null(state$condition_column) && length(filtered_cols) > 0) {
+      if (is.null(stable_condition_column()) && length(filtered_cols) > 0) {
         # Prioritize condition-like columns
         priority_cols <- grep("condition|treatment|group|genotype|timepoint", 
                               filtered_cols, value = TRUE, ignore.case = TRUE)
         
         if (length(priority_cols) > 0) {
-          state$condition_column <- priority_cols[1]
+          stable_condition_column(priority_cols[1])
         } else if (length(filtered_cols) > 0) {
-          state$condition_column <- filtered_cols[1]
+          stable_condition_column(filtered_cols[1])
         }
         
         # Initialize conditions for the selected column
-        updateConditionState(state$condition_column)
+        updateConditionState(stable_condition_column())
       }
     })
     
@@ -82,8 +93,8 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         ))
       }
       
-      # Find the current selected column
-      current_column <- state$condition_column
+      # Get the current selected column
+      current_column <- stable_condition_column()
       
       selectInput(ns("conditionColumn"), 
                   "Select condition column:", 
@@ -93,7 +104,12 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
     
     # Update condition state when dropdown selection changes
     observeEvent(input$conditionColumn, {
-      state$condition_column <- input$conditionColumn
+      # Skip if in loading state
+      if (ignore_input_changes()) {
+        return(NULL)
+      }
+      
+      stable_condition_column(input$conditionColumn)
       updateConditionState(input$conditionColumn)
     })
     
@@ -111,10 +127,16 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         # Skip if no values
         if (length(condition_values) == 0) return(NULL)
         
-        # Initialize labels and active status
-        state$condition_labels <- initializeConditionLabels(condition_values, state$condition_labels)
-        state$temp_labels <- state$condition_labels
-        state$active_conditions <- initializeActiveStatus(condition_values, state$active_conditions)
+        # Initialize labels
+        current_labels <- stable_labels()
+        new_labels <- initializeConditionLabels(condition_values, current_labels)
+        stable_labels(new_labels)
+        state$temp_labels <- new_labels
+        
+        # Initialize active status
+        current_active <- stable_active()
+        new_active <- initializeActiveStatus(condition_values, current_active)
+        stable_active(new_active)
       }
     }
     
@@ -123,7 +145,7 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
     #' @return Vector of unique condition values or NULL if none available
     #' @keywords internal
     getAvailableConditions <- function() {
-      column <- state$condition_column
+      column <- stable_condition_column()
       if (is.null(column) || is.null(seurat_data())) return(NULL)
       
       if (column %in% colnames(seurat_data()@meta.data)) {
@@ -135,8 +157,8 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
     
     # Setup UI for condition rows
     output$conditionRows <- renderUI({
-      req(state$condition_column)
-      column <- state$condition_column
+      column <- stable_condition_column()
+      req(column)
       
       available_conditions <- getAvailableConditions()
       
@@ -149,14 +171,14 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         ))
       }
       
-      # Get current labels and active status
-      current_temp_labels <- state$temp_labels
-      current_active <- state$active_conditions
+      # Get current values from stable storage
+      current_labels <- stable_labels()
+      current_active <- stable_active()
       
       # Calculate if all conditions are currently selected
       all_selected <- !is.null(current_active) && all(unlist(current_active))
       
-      # Return UI
+      # Build UI
       tagList(
         div(
           style = "display: flex; align-items: center; margin: 15px 0 10px 0;",
@@ -169,166 +191,260 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         ),
         div(
           style = "max-height: 400px; overflow-y: auto; border: 1px solid #e3e3e3; padding: 5px; border-radius: 4px;",
-          createConditionControls(ns, available_conditions, current_temp_labels, current_active)
+          createConditionControls(ns, available_conditions, current_labels, current_active)
         )
       )
     })
     
-    # Track input values for each condition's checkbox
-    observe({
-      req(getAvailableConditions())
-      available_conditions <- getAvailableConditions()
-      
-      # Monitor all checkboxes
-      lapply(available_conditions, function(condition) {
-        safe_id <- make_safe_id(condition)
-        input_id <- paste0("active_", safe_id)
-        
-        # Update input_values when checkbox changes
-        if (!is.null(input[[input_id]])) {
-          # This isolate prevents a circular dependency
-          isolate({
-            if (!identical(state$input_values[[input_id]], input[[input_id]])) {
-              state$input_values[[input_id]] <- input[[input_id]]
-              
-              # Also update the active_conditions directly
-              state$active_conditions[[condition]] <- input[[input_id]]
-            }
-          })
-        }
-      })
-    })
-    
     # Handle selectAllConditions checkbox
     observeEvent(input$selectAllConditions, {
+      # Skip if in loading state
+      if (ignore_input_changes()) {
+        return(NULL)
+      }
+      
       req(getAvailableConditions())
       available_conditions <- getAvailableConditions()
       
-      # Create a new active_conditions list with all conditions set to the checkbox value
+      # Create a new active_conditions list
       new_active <- setNames(
         rep(input$selectAllConditions, length(available_conditions)),
         available_conditions
       )
       
-      # Update state
-      state$active_conditions <- new_active
+      # Update stable storage
+      stable_active(new_active)
       
-      # Update individual checkboxes to match
+      # Update individual checkboxes
       for (condition in available_conditions) {
         safe_id <- make_safe_id(condition)
         updateCheckboxInput(session, paste0("active_", safe_id), value = input$selectAllConditions)
       }
     })
     
-    # Track status of "Select All" checkbox based on individual selections
+    # Track condition checkbox changes with dedicated observers
     observe({
-      req(getAvailableConditions())
-      available_conditions <- getAvailableConditions()
-      
-      # Skip if not initialized
-      if (is.null(state$active_conditions) || length(state$active_conditions) == 0) {
+      # Skip if in loading state
+      if (ignore_input_changes()) {
         return(NULL)
       }
       
-      # Check if all conditions are active
-      all_active <- all(unlist(state$active_conditions))
-      
-      # Update the "Select All" checkbox if needed
-      if (!is.null(input$selectAllConditions) && input$selectAllConditions != all_active) {
-        updateCheckboxInput(session, "selectAllConditions", value = all_active)
-      }
-    })
-    
-    # Add JavaScript to handle checkbox changes
-    observe({
-      # Generate JavaScript for all checkboxes
       req(getAvailableConditions())
       available_conditions <- getAvailableConditions()
       
+      # Setup observers for each condition
       lapply(available_conditions, function(condition) {
         safe_id <- make_safe_id(condition)
-        checkbox_id <- paste0(ns("active_"), safe_id)
+        input_id <- paste0("active_", safe_id)
         
-        # Add 'condition-management-checkbox' class to each checkbox
-        shinyjs::addClass(id = paste0("active_", safe_id), class = "condition-management-checkbox")
+        # Create observer for this specific input
+        observeEvent(input[[input_id]], {
+          # Skip if in loading state
+          if (ignore_input_changes()) {
+            return(NULL)
+          }
+          
+          # Get current active status
+          current_active <- stable_active()
+          
+          # Get previous value
+          old_value <- if (!is.null(current_active) && condition %in% names(current_active)) {
+            current_active[[condition]]
+          } else {
+            TRUE
+          }
+          
+          # Only update if changed
+          if (old_value != input[[input_id]]) {
+            # Create new copy
+            new_active <- current_active
+            new_active[[condition]] <- input[[input_id]]
+            
+            # Update stable storage
+            stable_active(new_active)
+            
+            # Log change
+            print(paste("Condition", condition, "active status changed from", 
+                        old_value, "to", input[[input_id]]))
+            
+            # Update "Select All" checkbox
+            all_active <- all(unlist(new_active))
+            updateCheckboxInput(session, "selectAllConditions", value = all_active)
+            
+            state$last_update <- Sys.time()
+          }
+        }, ignoreInit = TRUE)
       })
     })
     
-    # Handle label inputs
+    # Handle label inputs with dedicated observers
     observe({
+      # Skip if in loading state
+      if (ignore_input_changes()) {
+        return(NULL)
+      }
+      
       req(getAvailableConditions())
       available_conditions <- getAvailableConditions()
       
-      for(condition in available_conditions) {
-        local({
-          local_condition <- condition
-          safe_id <- make_safe_id(local_condition)
-          input_id <- paste0("label_", safe_id)
-          
-          # Create observer for this specific label input
-          if (!is.null(input[[input_id]])) {
-            observeEvent(input[[input_id]], {
-              # Store the input value in temp_labels
-              state$temp_labels[[local_condition]] <- input[[input_id]]
-            }, ignoreInit = TRUE)
+      # Setup observers for each condition's label
+      lapply(available_conditions, function(condition) {
+        safe_id <- make_safe_id(condition)
+        input_id <- paste0("label_", safe_id)
+        
+        # Create observer for this specific input
+        observeEvent(input[[input_id]], {
+          # Skip if in loading state
+          if (ignore_input_changes()) {
+            return(NULL)
           }
-        })
-      }
+          
+          # Update temp labels
+          state$temp_labels[[condition]] <- input[[input_id]]
+        }, ignoreInit = TRUE)
+      })
     })
     
     # Update permanent labels when update button is clicked
     observeEvent(input$updateAllLabels, {
-      # Update the permanent labels from the temporary ones
-      state$condition_labels <- state$temp_labels
+      # Skip if in loading state
+      if (ignore_input_changes()) {
+        return(NULL)
+      }
+      
+      # Update the stable labels from the temporary ones
+      stable_labels(state$temp_labels)
       showNotification("Condition labels updated", type = "message")
     })
     
+    # Function to get state for saving
+    getFullState = function() {
+      list(
+        condition_column = stable_condition_column(),
+        condition_labels = stable_labels(),
+        active_conditions = stable_active(),
+        temp_labels = state$temp_labels,
+        available_columns = state$available_columns
+      )
+    }
+    
+    # Function to restore state
+    setFullState = function(saved_state) {
+      if (!is.null(saved_state)) {
+        # Set loading flags
+        is_loading_state(TRUE)
+        ignore_input_changes(TRUE)
+        
+        print("Setting condition management full state")
+        
+        # Block updates during loading
+        shinyjs::delay(100, {
+          # Restore available columns if provided
+          if (!is.null(saved_state$available_columns)) {
+            state$available_columns <- saved_state$available_columns
+          }
+          
+          # Restore condition column
+          if (!is.null(saved_state$condition_column)) {
+            print(paste("Restoring condition column:", saved_state$condition_column))
+            stable_condition_column(saved_state$condition_column)
+            
+            # Update UI dropdown
+            updateSelectInput(session, "conditionColumn", selected = saved_state$condition_column)
+          }
+          
+          # Restore labels
+          if (!is.null(saved_state$condition_labels)) {
+            print(paste("Restoring", length(saved_state$condition_labels), "condition labels"))
+            stable_labels(saved_state$condition_labels)
+            
+            # Also restore temp labels if available
+            if (!is.null(saved_state$temp_labels)) {
+              state$temp_labels <- saved_state$temp_labels
+            } else {
+              state$temp_labels <- saved_state$condition_labels
+            }
+          }
+          
+          # Restore active status
+          if (!is.null(saved_state$active_conditions)) {
+            print(paste("Restoring", length(saved_state$active_conditions), "active conditions"))
+            stable_active(saved_state$active_conditions)
+          }
+          
+          # Update UI after a short delay
+          shinyjs::delay(300, {
+            # Get available conditions after column is set
+            available_conditions <- getAvailableConditions()
+            
+            if (!is.null(available_conditions) && length(available_conditions) > 0) {
+              # Update checkboxes
+              if (!is.null(saved_state$active_conditions)) {
+                for (condition in names(saved_state$active_conditions)) {
+                  if (condition %in% available_conditions) {
+                    safe_id <- make_safe_id(condition)
+                    updateCheckboxInput(session, paste0("active_", safe_id), 
+                                        value = saved_state$active_conditions[[condition]])
+                  }
+                }
+                
+                # Update "Select All" checkbox
+                all_active <- all(unlist(saved_state$active_conditions))
+                updateCheckboxInput(session, "selectAllConditions", value = all_active)
+              }
+              
+              # Update label inputs
+              if (!is.null(saved_state$condition_labels)) {
+                for (condition in names(saved_state$condition_labels)) {
+                  if (condition %in% available_conditions) {
+                    safe_id <- make_safe_id(condition)
+                    updateTextInput(session, paste0("label_", safe_id), 
+                                    value = saved_state$condition_labels[[condition]])
+                  }
+                }
+              }
+            }
+            
+            # Force UI refresh
+            state$last_update <- Sys.time()
+            
+            # Release locks after delay
+            shinyjs::delay(500, {
+              ignore_input_changes(FALSE)
+              shinyjs::delay(200, {
+                is_loading_state(FALSE)
+                print("Condition state loading complete")
+              })
+            })
+          })
+        })
+      }
+    }
+    
     # Return reactive expressions
     list(
-      getConditionColumn = reactive({ state$condition_column }),
-      getConditionLabels = reactive({ state$condition_labels }),
-      getActiveStatus = reactive({ state$active_conditions }),
-      getFullState = function() {
-        list(
-          condition_column = state$condition_column,
-          condition_labels = state$condition_labels,
-          active_conditions = state$active_conditions,
-          temp_labels = state$temp_labels
-        )
-      },
-      setFullState = function(saved_state) {
-        if (!is.null(saved_state)) {
-          if (!is.null(saved_state$condition_column)) {
-            state$condition_column <- saved_state$condition_column
-          }
-          if (!is.null(saved_state$condition_labels)) {
-            state$condition_labels <- saved_state$condition_labels
-          }
-          if (!is.null(saved_state$active_conditions)) {
-            state$active_conditions <- saved_state$active_conditions
-          }
-          if (!is.null(saved_state$temp_labels)) {
-            state$temp_labels <- saved_state$temp_labels
-          }
-        }
-      },
+      getConditionColumn = reactive({ stable_condition_column() }),
+      getConditionLabels = reactive({ stable_labels() }),
+      getActiveStatus = reactive({ stable_active() }),
       getActiveConditions = reactive({
-        conditions <- state$active_conditions
-        if (is.null(conditions)) return(NULL)
-        names(conditions[conditions == TRUE])
+        active_conditions <- stable_active()
+        if (is.null(active_conditions)) return(NULL)
+        names(active_conditions[unlist(active_conditions) == TRUE])
       }),
       getActiveConditionList = reactive({
-        conditions <- state$active_conditions
-        if (is.null(conditions)) return(NULL)
-        names(conditions[conditions == TRUE])
+        active_conditions <- stable_active()
+        if (is.null(active_conditions)) return(NULL)
+        names(active_conditions[unlist(active_conditions) == TRUE])
       }),
       updateLabels = function(new_labels) {
-        state$condition_labels <- new_labels
+        stable_labels(new_labels)
         state$temp_labels <- new_labels
       },
       updateActiveStatus = function(new_active) {
-        state$active_conditions <- new_active
-      }
+        stable_active(new_active)
+      },
+      getFullState = getFullState,
+      setFullState = setFullState
     )
   })
 }

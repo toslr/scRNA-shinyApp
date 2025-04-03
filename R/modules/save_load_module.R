@@ -167,6 +167,8 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
               if (!is.null(sample_management) && is.list(sample_management) && 
                   "getFullState" %in% names(sample_management) && is.function(sample_management$getFullState)) {
                 sample_management_state <- sample_management$getFullState()
+                print(paste("Sample management state successfully captured with", 
+                            length(sample_management_state$all_samples), "samples"))
               }
             }, error = function(e) {
               print(paste("Error getting sample management state:", e$message))
@@ -176,6 +178,8 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
               if (!is.null(condition_management) && is.list(condition_management) && 
                   "getFullState" %in% names(condition_management) && is.function(condition_management$getFullState)) {
                 condition_management_state <- condition_management$getFullState()
+                print(paste("Condition management state successfully captured with column:", 
+                            condition_management_state$condition_column))
               }
             }, error = function(e) {
               print(paste("Error getting condition management state:", e$message))
@@ -185,18 +189,13 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
               if (!is.null(cluster_management) && is.list(cluster_management) && 
                   "getFullState" %in% names(cluster_management) && is.function(cluster_management$getFullState)) {
                 cluster_management_state <- cluster_management$getFullState()
+                print(paste("Cluster management state successfully captured with", 
+                            length(cluster_management_state$all_clusters), "clusters"))
                 
-                # Log what we're saving
-                print("Saving cluster management state:")
-                print(paste("Number of clusters:", length(cluster_management_state$all_clusters)))
-                print(paste("Active clusters:", paste(names(cluster_management_state$active_clusters)[
-                  unlist(cluster_management_state$active_clusters) == TRUE], collapse = ", ")))
-                
-                # For each cluster, log its active status
-                for (cluster in names(cluster_management_state$active_clusters)) {
-                  print(paste("Saving cluster", cluster, "active status:", 
-                              cluster_management_state$active_clusters[[cluster]]))
-                }
+                # Log active clusters
+                active_clusters <- names(cluster_management_state$active_clusters[
+                  unlist(cluster_management_state$active_clusters) == TRUE])
+                print(paste("Active clusters:", paste(active_clusters, collapse = ", ")))
               }
             }, error = function(e) {
               print(paste("Error getting cluster management state:", e$message))
