@@ -30,6 +30,69 @@ deAnalysisServer <- function(id, clustered_seurat, cluster_management, sample_ma
     # Initialize state management
     state <- setupReactiveState()
     
+    # Track changes to cluster labels 
+    observe({
+      # This will only trigger when labels are actually saved via the button
+      req(cluster_management)
+      
+      # Use the last_update as a trigger
+      if (!is.null(cluster_management$last_update)) {
+        trigger_time <- cluster_management$last_update()
+        if (!is.null(trigger_time)) {
+          # When cluster labels change, force update of results if we have them
+          if (!is.null(state$de_genes()) && nrow(state$de_genes()) > 0) {
+            # Get current DE results
+            results <- state$de_genes()
+            
+            # Check if we have a comparison column to update
+            if ("comparison" %in% colnames(results)) {
+              # Get new cluster labels
+              new_labels <- cluster_management$getClusterLabels()
+              
+              # Get all cluster numbers in the data
+              all_clusters <- as.character(sort(unique(as.numeric(names(new_labels)))))
+              
+              # Generate a mapping of old labels to new labels
+              label_mapping <- lapply(all_clusters, function(cluster_key) {
+                if (cluster_key %in% names(new_labels)) {
+                  return(list(
+                    old = paste("Cluster", cluster_key),
+                    new = new_labels[[cluster_key]]
+                  ))
+                }
+                return(NULL)
+              })
+              
+              # Filter out NULLs
+              label_mapping <- label_mapping[!sapply(label_mapping, is.null)]
+              
+              # Apply the mapping to comparison text if we have mappings
+              if (length(label_mapping) > 0) {
+                # Get the current comparison text
+                current_comparison <- results$comparison[1]
+                
+                # Apply each mapping
+                for (mapping in label_mapping) {
+                  current_comparison <- gsub(
+                    mapping$old, 
+                    mapping$new, 
+                    current_comparison, 
+                    fixed = TRUE
+                  )
+                }
+                
+                # Update all rows
+                results$comparison <- current_comparison
+                
+                # Update the stored results
+                state$de_genes(results)
+              }
+            }
+          }
+        }
+      }
+    })
+    
     # Track sample and condition filtering
     state$filtered_samples <- reactiveVal(NULL)
     state$filtered_conditions <- reactiveVal(NULL)

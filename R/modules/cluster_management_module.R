@@ -37,6 +37,7 @@ clusterManagementServer <- function(id, clustered_seurat) {
       cluster_labels = NULL,
       active_clusters = NULL,
       all_clusters = NULL,
+      temp_labels = NULL,
       input_values = list(),
       last_update = NULL
     )
@@ -71,6 +72,11 @@ clusterManagementServer <- function(id, clustered_seurat) {
         # Update both storage mechanisms atomically
         state$cluster_labels <- new_labels
         stable_labels(new_labels)
+        
+        # Also initialize temp_labels if needed
+        if (is.null(state$temp_labels)) {
+          state$temp_labels <- list()
+        }
       }
       
       # Initialize active status if needed
@@ -80,7 +86,7 @@ clusterManagementServer <- function(id, clustered_seurat) {
       }
     })
     
-    # Setup UI for cluster rows - completely redesigned to prevent flickering
+    # Setup UI for cluster rows
     output$clusterRows <- renderUI({
       # Skip if no clusters
       if (is.null(state$all_clusters) || length(state$all_clusters) == 0) {
@@ -105,8 +111,10 @@ clusterManagementServer <- function(id, clustered_seurat) {
             TRUE  # Default to active
           }
           
-          # Get label from stable source - this prevents flickering
-          current_label <- if (!is.null(current_labels) && cluster_key %in% names(current_labels)) {
+          # Get label value to display - use temp label if available, otherwise stable label
+          display_value <- if (!is.null(state$temp_labels) && cluster_key %in% names(state$temp_labels)) {
+            state$temp_labels[[cluster_key]]
+          } else if (!is.null(current_labels) && cluster_key %in% names(current_labels)) {
             current_labels[[cluster_key]]
           } else {
             paste("Cluster", cluster)
@@ -128,7 +136,7 @@ clusterManagementServer <- function(id, clustered_seurat) {
                      tags$div(
                        textInput(ns(paste0("label_", cluster)),
                                  label = NULL,
-                                 value = current_label)
+                                 value = display_value)
                      )
               )
             )
@@ -137,7 +145,10 @@ clusterManagementServer <- function(id, clustered_seurat) {
       )
     })
     
-    # Track label changes with a dedicated observer for each cluster
+    # Add a reactive value for temporary edits
+    temp_labels <- reactiveVal(list())
+    
+    # Track label changes with a dedicated observer
     observe({
       req(state$all_clusters)
       
@@ -158,35 +169,15 @@ clusterManagementServer <- function(id, clustered_seurat) {
             return(NULL)
           }
           
-          # Get current label value from input
-          current_value <- input[[input_id]]
-          
-          # Get current stable labels
-          current_labels <- stable_labels()
-          
-          # Get previous value if it exists
-          previous_value <- if (!is.null(current_labels) && cluster_key %in% names(current_labels)) {
-            current_labels[[cluster_key]]
-          } else {
-            paste("Cluster", cluster)
+          # Store the input value in a state variable instead of updating labels directly
+          # This way we collect changes but don't trigger UI updates
+          if (is.null(state$temp_labels)) {
+            state$temp_labels <- list()
           }
           
-          # Only update if the value actually changed
-          if (current_value != previous_value) {
-            # Create a new copy of labels to modify
-            new_labels <- current_labels
-            new_labels[[cluster_key]] <- current_value
-            
-            # Update the stable storage
-            stable_labels(new_labels)
-            
-            # Also update state for consistency
-            state$cluster_labels[[cluster_key]] <- current_value
-            
-            # Log the change
-            print(paste("Label for cluster", cluster_key, "changed from", 
-                        previous_value, "to", current_value))
-          }
+          # Update the temporary value
+          state$temp_labels[[cluster_key]] <- input[[input_id]]
+          
         }, ignoreInit = TRUE)
       })
     })
@@ -274,27 +265,34 @@ clusterManagementServer <- function(id, clustered_seurat) {
       
       req(state$all_clusters)
       
-      # Get current stable labels
-      current_labels <- stable_labels()
-      
-      # Collect all input values
-      for (cluster in state$all_clusters) {
-        cluster_key <- as.character(cluster)
-        input_id <- paste0("label_", cluster)
-        
-        # Only update if we have a value
-        if (!is.null(input[[input_id]])) {
-          current_labels[[cluster_key]] <- input[[input_id]]
+      # Only proceed if we have temporary labels to apply
+      if (!is.null(state$temp_labels) && length(state$temp_labels) > 0) {
+        # Start with current stable labels
+        current_labels <- stable_labels()
+        if (is.null(current_labels)) {
+          current_labels <- list()
         }
+        
+        # Merge in temporary labels
+        for (cluster_key in names(state$temp_labels)) {
+          current_labels[[cluster_key]] <- state$temp_labels[[cluster_key]]
+        }
+        
+        # Apply the update
+        stable_labels(current_labels)
+        
+        # Also update state for consistency
+        state$cluster_labels <- current_labels
+        
+        # Clear temp labels to avoid duplicate application
+        state$temp_labels <- list()
+        
+        # Trigger update in other modules
+        state$last_update <- Sys.time()
+        
+        # Show notification
+        showNotification("Cluster labels updated", type = "message")
       }
-      
-      # Update stable labels in a single atomic operation
-      stable_labels(current_labels)
-      
-      # Also update state for consistency
-      state$cluster_labels <- current_labels
-      
-      showNotification("Cluster labels updated", type = "message")
     })
     
     # Function to get a comprehensive state snapshot for saving
@@ -334,6 +332,9 @@ clusterManagementServer <- function(id, clustered_seurat) {
             
             # Then update state for consistency
             state$cluster_labels <- saved_state$cluster_labels
+            
+            # Ensure temp_labels is initialized properly
+            state$temp_labels <- list()
             
             # Print all labels being restored
             for (cluster_key in names(saved_state$cluster_labels)) {
@@ -391,7 +392,7 @@ clusterManagementServer <- function(id, clustered_seurat) {
     }
     
     # Return reactive expressions
-    list(
+    return(list(
       getClusterLabels = reactive({ stable_labels() }),  # Use stable_labels instead of state
       getActiveStatus = reactive({ state$active_clusters }),
       getActiveClusterIds = reactive({
@@ -407,14 +408,48 @@ clusterManagementServer <- function(id, clustered_seurat) {
         stable_labels(new_labels)
         # Also update state for consistency
         state$cluster_labels <- new_labels
+        # Signal the update
+        state$last_update <- Sys.time()
       },
       updateActiveStatus = function(new_active) {
         state$active_clusters <- new_active
       },
       last_update = reactive({ state$last_update }),
       getFullState = getFullState,
-      setFullState = setFullState
-    )
+      setFullState = setFullState,
+      updateFromButton = function() {
+        # Only proceed if we have temporary labels to apply
+        if (!is.null(state$temp_labels) && length(state$temp_labels) > 0) {
+          # Start with current stable labels
+          current_labels <- stable_labels()
+          if (is.null(current_labels)) {
+            current_labels <- list()
+          }
+          
+          # Merge in temporary labels
+          for (cluster_key in names(state$temp_labels)) {
+            current_labels[[cluster_key]] <- state$temp_labels[[cluster_key]]
+          }
+          
+          # Apply the update
+          stable_labels(current_labels)
+          
+          # Also update state for consistency
+          state$cluster_labels <- current_labels
+          
+          # Clear temp labels to avoid duplicate application
+          state$temp_labels <- list()
+          
+          # Trigger update in other modules
+          state$last_update <- Sys.time()
+          
+          # Show notification
+          showNotification("Cluster labels updated", type = "message")
+        } else {
+          showNotification("No label changes to save", type = "message")
+        }
+      }
+    ))
   })
 }
 
