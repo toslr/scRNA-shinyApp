@@ -338,7 +338,22 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         # For clusters, get them as characters but sort numerically
         cluster_values <- unique(as.character(values$clustered_seurat$seurat_clusters))
         # Convert to numeric, sort, then back to character
-        return(as.character(sort(as.numeric(cluster_values))))
+        sorted_clusters <- as.character(sort(as.numeric(cluster_values)))
+        
+        # Format cluster labels using the complete format (number:name)
+        if (!is.null(values$cluster_labels)) {
+          formatted_clusters <- vapply(sorted_clusters, function(cluster) {
+            if (cluster %in% names(values$cluster_labels)) {
+              paste0(cluster, ":", values$cluster_labels[[cluster]])
+            } else {
+              paste0(cluster, ":Cluster ", cluster)
+            }
+          }, character(1))
+          
+          return(formatted_clusters)
+        }
+        
+        return(sorted_clusters)
       } else if (column_name %in% colnames(values$clustered_seurat@meta.data)) {
         # For other metadata columns
         metadata_values <- unique(as.character(values$clustered_seurat@meta.data[[column_name]]))
@@ -625,15 +640,12 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
     observeEvent(input$leftUMAP2D, {
       values$left_umap_type <- "2D"
     })
-    
     observeEvent(input$leftUMAP3D, {
       values$left_umap_type <- "3D"
     })
-    
     observeEvent(input$rightUMAP2D, {
       values$right_umap_type <- "2D"
     })
-    
     observeEvent(input$rightUMAP3D, {
       values$right_umap_type <- "3D"
     })
@@ -642,7 +654,6 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
     observeEvent(input$leftColorBy, {
       values$left_color_by <- input$leftColorBy
     })
-    
     observeEvent(input$rightColorBy, {
       values$right_color_by <- input$rightColorBy
     })
@@ -890,22 +901,23 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       
       # Add cluster_label column if we have cluster labels
       if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
-        # Create temporary column for cluster labels with format "N:abc"
-        filtered_seurat$cluster_label <- sapply(filtered_seurat$seurat_clusters, function(cluster) {
+        # Create temporary column for cluster labels
+        filtered_seurat$cluster_label <- as.character(filtered_seurat$seurat_clusters)
+        # For each cluster in the dataset, update its display name if we have a label
+        current_clusters <- unique(filtered_seurat$seurat_clusters)
+        for (cluster in current_clusters) {
           cluster_key <- as.character(cluster)
           if (cluster_key %in% names(values$cluster_labels)) {
+            # Format the label as "cluster_number:label"
             full_label <- values$cluster_labels[[cluster_key]]
-            # Get first 3 letters (if it has at least 3 characters)
-            short_label <- if (nchar(full_label) >= 3) {
-              substr(full_label, 1, 3)
-            } else {
-              full_label  # Use full label if less than 3 chars
-            }
-            paste0(cluster, ":", short_label)
+            
+            # Replace cluster IDs with the formatted labels
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":", full_label)
           } else {
-            paste0(cluster, ":Cl", cluster)  # Default format if no label
+            # Default format if no label exists
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":Cluster", cluster)
           }
-        })
+        }
       }
       
       # Now get active items for the coloring-specific toggles
@@ -996,8 +1008,14 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         for (cluster in current_clusters) {
           cluster_key <- as.character(cluster)
           if (cluster_key %in% names(values$cluster_labels)) {
-            # Replace cluster IDs with their labels
-            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+            # Format the label as "cluster_number:label"
+            full_label <- values$cluster_labels[[cluster_key]]
+            
+            # Replace cluster IDs with the formatted labels
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":", full_label)
+          } else {
+            # Default format if no label exists
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":Cluster", cluster)
           }
         }
       }
@@ -1091,8 +1109,14 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         for (cluster in current_clusters) {
           cluster_key <- as.character(cluster)
           if (cluster_key %in% names(values$cluster_labels)) {
-            # Replace cluster IDs with their labels
-            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+            # Format the label as "cluster_number:label"
+            full_label <- values$cluster_labels[[cluster_key]]
+            
+            # Replace cluster IDs with the formatted labels
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":", full_label)
+          } else {
+            # Default format if no label exists
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":Cluster", cluster)
           }
         }
       }
@@ -1185,8 +1209,14 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         for (cluster in current_clusters) {
           cluster_key <- as.character(cluster)
           if (cluster_key %in% names(values$cluster_labels)) {
-            # Replace cluster IDs with their labels
-            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+            # Format the label as "cluster_number:label"
+            full_label <- values$cluster_labels[[cluster_key]]
+            
+            # Replace cluster IDs with the formatted labels
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":", full_label)
+          } else {
+            # Default format if no label exists
+            filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":Cluster", cluster)
           }
         }
       }
@@ -1270,8 +1300,14 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           for (cluster in current_clusters) {
             cluster_key <- as.character(cluster)
             if (cluster_key %in% names(values$cluster_labels)) {
-              # Replace cluster IDs with their labels
-              filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+              # Format the label as "cluster_number:label"
+              full_label <- values$cluster_labels[[cluster_key]]
+              
+              # Replace cluster IDs with the formatted labels
+              filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":", full_label)
+            } else {
+              # Default format if no label exists
+              filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":Cluster", cluster)
             }
           }
         }
@@ -1372,8 +1408,14 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           for (cluster in current_clusters) {
             cluster_key <- as.character(cluster)
             if (cluster_key %in% names(values$cluster_labels)) {
-              # Replace cluster IDs with their labels
-              filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- values$cluster_labels[[cluster_key]]
+              # Format the label as "cluster_number:label"
+              full_label <- values$cluster_labels[[cluster_key]]
+              
+              # Replace cluster IDs with the formatted labels
+              filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":", full_label)
+            } else {
+              # Default format if no label exists
+              filtered_seurat$cluster_label[filtered_seurat$seurat_clusters == cluster] <- paste0(cluster, ":Cluster", cluster)
             }
           }
         }
@@ -1506,11 +1548,21 @@ create_legend_toggle_ui <- function(ns, items, input_id, title = "Legend Options
         tags$div(
           style = "max-height: 200px; overflow-y: auto; padding: 5px; border: 1px solid #ddd; border-radius: 4px;",
           lapply(items, function(item) {
+            # Check if this is possibly a numeric item
+            is_number_only <- grepl("^\\d+$", item)
+            
+            # If it's just a number and we're in cluster options, format it
+            if (title == "Cluster Options" && is_number_only) {
+              display_label <- paste0(item, ":Cluster ", item)
+            } else {
+              display_label <- item  # Use as is
+            }
+            
             div(
               style = "margin-bottom: 5px;",
               checkboxInput(
                 ns(paste0(input_id, "_", gsub("[^a-zA-Z0-9]", "_", item))),
-                label = item,
+                label = display_label,
                 value = initial_state
               )
             )

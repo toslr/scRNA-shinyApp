@@ -140,7 +140,7 @@ search_genes <- function(seurat_obj, query) {
   return(results)
 }
 
-#' @title Create 2D UMAP Plot
+#' @title Create 2D UMAP Plot with Improved Filtering
 #' @description Creates a standard 2D UMAP visualization with customizable coloring and filtering.
 #'   Can color by cluster, sample, gene expression, or any metadata column.
 #' @param seurat_obj Seurat object
@@ -156,11 +156,101 @@ search_genes <- function(seurat_obj, query) {
 create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL,
                                 reduction = "umap2d", label = TRUE, pt_size = 1, 
                                 active_items = NULL, ...) {
-  # Handle different coloring options
+  
+  # First handle filtering based on active_items if provided
+  if (!is.null(active_items) && length(active_items) > 0) {
+    if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
+      # Extract cluster numbers from formatted active items (e.g., "0:Cluster 0" -> "0")
+      numeric_clusters <- sapply(strsplit(active_items, ":"), function(x) as.numeric(x[1]))
+      cells_to_keep <- seurat_obj$seurat_clusters %in% numeric_clusters
+      
+      # Only filter if we have matches
+      if (any(cells_to_keep)) {
+        seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+      } else {
+        # Return message if no cells match
+        return(ggplot() + 
+                 annotate("text", x = 0.5, y = 0.5, 
+                          label = "No cells match the selected clusters") + 
+                 theme_void())
+      }
+    } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
+      # For sample filtering
+      # Check if we need to extract sample names from formatted items
+      if (any(grepl(":", active_items))) {
+        # Items are formatted like "SampleName:Label"
+        sample_ids <- sapply(strsplit(active_items, ":"), function(x) x[1])
+      } else {
+        sample_ids <- active_items
+      }
+      
+      cells_to_keep <- seurat_obj$sample %in% sample_ids
+      
+      if (any(cells_to_keep)) {
+        seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+      } else {
+        return(ggplot() + 
+                 annotate("text", x = 0.5, y = 0.5, 
+                          label = "No cells match the selected samples") + 
+                 theme_void())
+      }
+    } else if (color_by %in% colnames(seurat_obj@meta.data)) {
+      # For any other metadata column
+      cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% active_items
+      
+      if (any(cells_to_keep)) {
+        seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+      } else {
+        return(ggplot() + 
+                 annotate("text", x = 0.5, y = 0.5, 
+                          label = paste0("No cells match the selected ", color_by, " values")) + 
+                 theme_void())
+      }
+    }
+  }
+  
+  # Then handle different coloring options
   if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
     # Check if we have a cluster_label column to use instead
     if ("cluster_label" %in% colnames(seurat_obj@meta.data)) {
-      # Create a factor with levels in numerical order
+      # Store original cluster labels (they might be in 0:name format already)
+      original_labels <- seurat_obj$cluster_label
+      
+      # Create a column with just numbers for labeling the plot
+      seurat_obj$cluster_number <- seurat_obj$seurat_clusters
+      
+      # Create a column with shortened legend labels (0:abc format)
+      seurat_obj$shortened_labels <- sapply(original_labels, function(label) {
+        parts <- strsplit(label, ":")[[1]]
+        if (length(parts) == 2) {
+          # Label is already in number:name format
+          cluster_num <- parts[1]
+          full_name <- parts[2]
+          
+          # Get first 3 letters of the name
+          short_name <- if (nchar(full_name) >= 3) {
+            substr(full_name, 1, 3)
+          } else {
+            full_name
+          }
+          
+          paste0(cluster_num, ":", short_name)
+        } else {
+          # Label is not in number:name format yet
+          cluster_num <- as.character(seurat_obj$seurat_clusters[seurat_obj$cluster_label == label][1])
+          
+          # Get first 3 letters of the name
+          short_name <- if (nchar(label) >= 3) {
+            substr(label, 1, 3)
+          } else {
+            label
+          }
+          
+          paste0(cluster_num, ":", short_name)
+        }
+      })
+      
+      # Create ordered factor for plotting
       cluster_ids <- as.character(seurat_obj$seurat_clusters)
       unique_clusters <- sort(as.numeric(unique(cluster_ids)))
       
@@ -171,28 +261,53 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
         stringsAsFactors = FALSE
       )
       
-      # Map the cluster labels to the ordering
+      # Map the shortened labels to the ordering
       for (i in 1:nrow(ordering_map)) {
         cluster_id <- ordering_map$cluster_id[i]
-        # Find the first matching label
+        # Find the first matching shortened label
         matching_idx <- which(cluster_ids == cluster_id)[1]
         if (!is.na(matching_idx)) {
-          ordering_map$label[i] <- seurat_obj$cluster_label[matching_idx]
+          ordering_map$label[i] <- seurat_obj$shortened_labels[matching_idx]
         }
       }
       
       # Set the factor levels in numerical order
-      seurat_obj$cluster_label <- factor(seurat_obj$cluster_label, 
-                                         levels = ordering_map$label[!is.na(ordering_map$label)])
+      seurat_obj$shortened_labels <- factor(seurat_obj$shortened_labels, 
+                                            levels = ordering_map$label[!is.na(ordering_map$label)])
       
-      return(DimPlot(seurat_obj, 
+      # Create plot with customized labels
+      if (label) {
+        # If labeling is requested, use DimPlot with numbers as labels
+        p <- DimPlot(seurat_obj, 
                      reduction = reduction, 
-                     group.by = "cluster_label",
-                     label = FALSE,  # No point labels
+                     group.by = "shortened_labels",  # Group by the shortened labels for legend
+                     label = TRUE,  # Show labels
+                     label.size = 4,  # Adjust size as needed
+                     repel = TRUE,  # Avoid overlapping
                      pt.size = pt_size,
-                     ...))
-      } 
-    } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
+                     ...)
+        
+        # Replace labels with just the cluster numbers
+        p$labels <- as.character(seurat_obj$seurat_clusters[match(p$labels, seurat_obj$shortened_labels)])
+        
+        # Customize legend title
+        p <- p + labs(color = "Cluster")
+      } else {
+        # If no labeling, just use the shortened labels for coloring
+        p <- DimPlot(seurat_obj, 
+                     reduction = reduction, 
+                     group.by = "shortened_labels",
+                     label = FALSE,
+                     pt.size = pt_size,
+                     ...)
+        
+        # Customize legend title
+        p <- p + labs(color = "Cluster")
+      }
+      
+      return(p)
+    } 
+  } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
     # Check if we have a sample_label column to use instead
     if ("sample_label" %in% colnames(seurat_obj@meta.data)) {
       # Use the sample_label column for visualization  
@@ -203,23 +318,15 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
                      ...))
     }
     
-    # Otherwise, use standard sample coloring with optional filtering
-    if (!is.null(active_items) && length(active_items) > 0) {
-      # Filter to only show active samples
-      cells_to_keep <- seurat_obj$sample %in% active_items
-      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
-    } else {
-      plot_obj <- seurat_obj
-    }
-    
-    return(DimPlot(plot_obj, 
+    # Otherwise, use standard sample coloring (already filtered above if needed)
+    return(DimPlot(seurat_obj, 
                    reduction = reduction, 
                    group.by = "sample",
                    pt.size = pt_size,
                    ...))
     
   } else if (color_by == "gene" && !is.null(gene_id) && gene_id %in% rownames(seurat_obj)) {
-    # For gene expression, we use the original object but apply cell highlighting if needed
+    # For gene expression, we use the object (filtered above if needed)
     return(FeaturePlot(seurat_obj, 
                        features = gene_id, 
                        reduction = reduction,
@@ -227,16 +334,8 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
                        ...))
     
   } else if (color_by %in% colnames(seurat_obj@meta.data)) {
-    # Color by any metadata column with optional filtering
-    if (!is.null(active_items) && length(active_items) > 0) {
-      # Filter to only show active values for the selected column
-      cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% active_items
-      plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
-    } else {
-      plot_obj <- seurat_obj
-    }
-    
-    return(DimPlot(plot_obj, 
+    # Color by any metadata column (already filtered above if needed)
+    return(DimPlot(seurat_obj, 
                    reduction = reduction, 
                    group.by = color_by,
                    pt.size = pt_size,
@@ -266,8 +365,9 @@ create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "u
   # Handle subsetting based on active items
   if (!is.null(active_items) && length(active_items) > 0) {
     if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
-      # Convert active_items to numeric for cluster comparison
-      cells_to_keep <- seurat_obj$seurat_clusters %in% as.numeric(active_items)
+      # Extract cluster numbers from active_items if they're in "number:name" format
+      numeric_clusters <- sapply(strsplit(active_items, ":"), function(x) as.numeric(x[1]))
+      cells_to_keep <- seurat_obj$seurat_clusters %in% numeric_clusters
     } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
       cells_to_keep <- seurat_obj$sample %in% active_items
     } else if (color_by %in% colnames(seurat_obj@meta.data)) {
@@ -292,32 +392,34 @@ create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "u
   
   # Handle different coloring options
   if (color_by == "cluster" && "cluster_label" %in% colnames(plot_obj@meta.data)) {
-    # Get clusters in numeric order
+    # Get the cluster labels and create shortened versions for the legend (3 letters)
     cluster_ids <- as.character(plot_obj$seurat_clusters)
-    unique_clusters <- sort(as.numeric(unique(cluster_ids)))
+    cluster_labels <- plot_obj$cluster_label
     
-    # Create a mapping to preserve numeric ordering
-    ordering_map <- data.frame(
-      cluster_id = as.character(unique_clusters),
-      label = NA,
-      stringsAsFactors = FALSE
-    )
-    
-    # Map the cluster labels to the ordering
-    for (i in 1:nrow(ordering_map)) {
-      cluster_id <- ordering_map$cluster_id[i]
-      # Find the first matching label
-      matching_idx <- which(cluster_ids == cluster_id)[1]
-      if (!is.na(matching_idx)) {
-        ordering_map$label[i] <- plot_obj$cluster_label[matching_idx]
+    # Create shortened versions for display in the legend (cluster_number:abc)
+    short_labels <- sapply(cluster_labels, function(label) {
+      parts <- strsplit(label, ":")[[1]]
+      cluster_num <- parts[1]
+      full_name <- parts[2]
+      
+      # Get first 3 letters of the name (if it exists)
+      short_name <- if (nchar(full_name) >= 3) {
+        substr(full_name, 1, 3)
+      } else {
+        full_name
       }
-    }
+      
+      paste0(cluster_num, ":", short_name)
+    })
     
-    # Create ordered factor
-    ordered_levels <- ordering_map$label[!is.na(ordering_map$label)]
-    color_var <- factor(plot_obj$cluster_label, levels = ordered_levels)
+    # Create ordered factor for short labels
+    unique_short_labels <- unique(short_labels)
+    ordered_indices <- order(as.numeric(gsub(":.*$", "", unique_short_labels)))
+    ordered_short_labels <- unique_short_labels[ordered_indices]
+    
+    color_var <- factor(short_labels, levels = ordered_short_labels)
     plot_title <- "3D UMAP - Colored by Clusters"
-    hover_text <- paste("Cluster:", color_var)
+    hover_text <- paste("Cluster:", cluster_ids, "<br>Label:", cluster_labels)
   } else if (color_by == "sample" && "sample" %in% colnames(plot_obj@meta.data)) {
     # Check if we have a sample_label column to use instead
     if ("sample_label" %in% colnames(plot_obj@meta.data)) {
