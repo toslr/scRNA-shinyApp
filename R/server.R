@@ -295,24 +295,6 @@ buildServer <- function() {
       }
     }, ignoreInit = TRUE)
     
-    # Handle the condition management all conditions checkbox
-    observeEvent(input$selectAllConditions, {
-      if (is.function(condition_management$updateActiveStatus)) {
-        condition_column <- condition_management$getConditionColumn()
-        if (!is.null(condition_column) && !is.null(seurat_data())) {
-          # Get all available conditions for the selected column
-          condition_values <- unique(as.character(seurat_data()@meta.data[[condition_column]]))
-          if (length(condition_values) > 0) {
-            new_active <- setNames(
-              rep(input$selectAllConditions, length(condition_values)),
-              condition_values
-            )
-            condition_management$updateActiveStatus(new_active)
-          }
-        }
-      }
-    }, ignoreInit = TRUE)
-    
     # Handle condition label updates button
     observeEvent(input$updateConditionLabels, {
       if (is.function(condition_management$getConditionLabels)) {

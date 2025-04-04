@@ -156,6 +156,7 @@ search_genes <- function(seurat_obj, query) {
 create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL,
                                 reduction = "umap2d", label = TRUE, pt_size = 1, 
                                 active_items = NULL, ...) {
+  using_condition_labels <- FALSE
   
   # First handle filtering based on active_items if provided
   if (!is.null(active_items) && length(active_items) > 0) {

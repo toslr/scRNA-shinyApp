@@ -128,10 +128,17 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       active_conditions <- condition_management$getActiveConditions()
       condition_column <- condition_management$getConditionColumn()
       
+      # Debug
+      print("DimRed module condition observer triggered")
+      print(paste("Condition column:", condition_column))
+      print("Active conditions:")
+      print(active_conditions)
+      
       # Update filtered conditions and condition column
       if (!identical(values$filtered_conditions, active_conditions) || 
           !identical(values$condition_column, condition_column)) {
         
+        print("DimRed module updating filtered conditions")
         values$filtered_conditions <- active_conditions
         values$condition_column <- condition_column
         

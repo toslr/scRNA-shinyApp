@@ -27,7 +27,9 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Add loading locks
+    # Use flags to control update flow and prevent cascades
+    updating_from_checkbox <- reactiveVal(FALSE)
+    updating_select_all <- reactiveVal(FALSE)
     is_loading_state <- reactiveVal(FALSE)
     ignore_input_changes <- reactiveVal(FALSE)
     
@@ -176,7 +178,7 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       current_active <- stable_active()
       
       # Calculate if all conditions are currently selected
-      all_selected <- !is.null(current_active) && all(unlist(current_active))
+      all_selected <- !is.null(current_active) && length(current_active) > 0 && all(unlist(current_active))
       
       # Build UI
       tagList(
@@ -196,12 +198,30 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       )
     })
     
+    # Create a deep copy of a list
+    deep_copy <- function(list_obj) {
+      if (is.null(list_obj)) return(list())
+      result <- list()
+      for (name in names(list_obj)) {
+        result[[name]] <- list_obj[[name]]
+      }
+      return(result)
+    }
+    
     # Handle selectAllConditions checkbox
     observeEvent(input$selectAllConditions, {
+      # Skip if we're already updating from a checkbox change
+      if (updating_from_checkbox()) {
+        return(NULL)
+      }
+      
       # Skip if in loading state
       if (ignore_input_changes()) {
         return(NULL)
       }
+      
+      # Mark that we're updating from Select All
+      updating_select_all(TRUE)
       
       req(getAvailableConditions())
       available_conditions <- getAvailableConditions()
@@ -212,7 +232,10 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         available_conditions
       )
       
-      # Update stable storage
+      # Block individual checkbox observers
+      ignore_input_changes(TRUE)
+      
+      # Update stable storage with our copy
       stable_active(new_active)
       
       # Update individual checkboxes
@@ -220,15 +243,19 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         safe_id <- make_safe_id(condition)
         updateCheckboxInput(session, paste0("active_", safe_id), value = input$selectAllConditions)
       }
-    })
-    
-    # Track condition checkbox changes with dedicated observers
-    observe({
-      # Skip if in loading state
-      if (ignore_input_changes()) {
-        return(NULL)
-      }
       
+      # Now it's safe to allow changes - slight delay to ensure UI updates first
+      shinyjs::delay(200, {
+        ignore_input_changes(FALSE)
+        updating_select_all(FALSE)
+        
+        # Trigger state update
+        state$last_update <- Sys.time()
+      })
+    }, ignoreInit = TRUE, priority = 10)  # Higher priority
+    
+    # Individual condition checkbox handling
+    observe({
       req(getAvailableConditions())
       available_conditions <- getAvailableConditions()
       
@@ -239,42 +266,80 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         
         # Create observer for this specific input
         observeEvent(input[[input_id]], {
-          # Skip if in loading state
-          if (ignore_input_changes()) {
+          # Skip if in loading state or during Select All update
+          if (ignore_input_changes() || updating_select_all()) {
             return(NULL)
           }
           
-          # Get current active status
-          current_active <- stable_active()
+          # Mark that we're updating from a checkbox
+          updating_from_checkbox(TRUE)
           
-          # Get previous value
+          # Get current active status - create a complete copy to avoid reference issues
+          current_active <- deep_copy(stable_active())
+          
+          # Get previous value with default
           old_value <- if (!is.null(current_active) && condition %in% names(current_active)) {
             current_active[[condition]]
           } else {
             TRUE
           }
           
-          # Only update if changed
+          # Check if value actually changed
           if (old_value != input[[input_id]]) {
-            # Create new copy
-            new_active <- current_active
-            new_active[[condition]] <- input[[input_id]]
+            # Update our deep copy with the new value
+            current_active[[condition]] <- input[[input_id]]
             
-            # Update stable storage
-            stable_active(new_active)
+            # Update stable active status
+            stable_active(current_active)
             
-            # Log change
-            print(paste("Condition", condition, "active status changed from", 
-                        old_value, "to", input[[input_id]]))
-            
-            # Update "Select All" checkbox
-            all_active <- all(unlist(new_active))
-            updateCheckboxInput(session, "selectAllConditions", value = all_active)
-            
+            # Signal update
             state$last_update <- Sys.time()
           }
-        }, ignoreInit = TRUE)
+          
+          # Clear updating flag after a delay
+          shinyjs::delay(100, {
+            updating_from_checkbox(FALSE)
+          })
+        }, ignoreInit = TRUE, priority = 20)  # Very high priority
       })
+    })
+    
+    # Separate observer just for syncing the "Select All" checkbox
+    observe({
+      # Skip during active updates
+      if (updating_from_checkbox() || updating_select_all() || ignore_input_changes()) {
+        return(NULL)
+      }
+      
+      # Get current active status
+      current_active <- stable_active()
+      
+      # Skip if not ready yet
+      if (is.null(current_active) || length(current_active) == 0) {
+        return(NULL)
+      }
+      
+      # Calculate whether all are selected
+      all_selected <- all(unlist(current_active))
+      
+      # Check current value of the checkbox
+      current_state <- input$selectAllConditions
+      
+      # Only update if different and not null
+      if (!is.null(current_state) && all_selected != current_state) {
+        # Temporarily block updates
+        ignore_input_changes(TRUE)
+        updating_select_all(TRUE)
+        
+        # Update the checkbox - this will NOT trigger its observer due to our flags
+        updateCheckboxInput(session, "selectAllConditions", value = all_selected)
+        
+        # Release locks after a delay
+        shinyjs::delay(200, {
+          ignore_input_changes(FALSE)
+          updating_select_all(FALSE)
+        })
+      }
     })
     
     # Handle label inputs with dedicated observers
@@ -313,7 +378,11 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
       }
       
       # Update the stable labels from the temporary ones
-      stable_labels(state$temp_labels)
+      stable_labels(deep_copy(state$temp_labels))
+      
+      # Trigger update for reactivity
+      state$last_update <- Sys.time()
+      
       showNotification("Condition labels updated", type = "message")
     })
     
@@ -335,8 +404,6 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         is_loading_state(TRUE)
         ignore_input_changes(TRUE)
         
-        print("Setting condition management full state")
-        
         # Block updates during loading
         shinyjs::delay(100, {
           # Restore available columns if provided
@@ -346,7 +413,6 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
           
           # Restore condition column
           if (!is.null(saved_state$condition_column)) {
-            print(paste("Restoring condition column:", saved_state$condition_column))
             stable_condition_column(saved_state$condition_column)
             
             # Update UI dropdown
@@ -355,21 +421,19 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
           
           # Restore labels
           if (!is.null(saved_state$condition_labels)) {
-            print(paste("Restoring", length(saved_state$condition_labels), "condition labels"))
-            stable_labels(saved_state$condition_labels)
+            stable_labels(deep_copy(saved_state$condition_labels))
             
             # Also restore temp labels if available
             if (!is.null(saved_state$temp_labels)) {
-              state$temp_labels <- saved_state$temp_labels
+              state$temp_labels <- deep_copy(saved_state$temp_labels)
             } else {
-              state$temp_labels <- saved_state$condition_labels
+              state$temp_labels <- deep_copy(saved_state$condition_labels)
             }
           }
           
           # Restore active status
           if (!is.null(saved_state$active_conditions)) {
-            print(paste("Restoring", length(saved_state$active_conditions), "active conditions"))
-            stable_active(saved_state$active_conditions)
+            stable_active(deep_copy(saved_state$active_conditions))
           }
           
           # Update UI after a short delay
@@ -378,6 +442,8 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
             available_conditions <- getAvailableConditions()
             
             if (!is.null(available_conditions) && length(available_conditions) > 0) {
+              updating_select_all(TRUE)
+              
               # Update checkboxes
               if (!is.null(saved_state$active_conditions)) {
                 for (condition in names(saved_state$active_conditions)) {
@@ -403,6 +469,8 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
                   }
                 }
               }
+              
+              updating_select_all(FALSE)
             }
             
             # Force UI refresh
@@ -413,7 +481,6 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
               ignore_input_changes(FALSE)
               shinyjs::delay(200, {
                 is_loading_state(FALSE)
-                print("Condition state loading complete")
               })
             })
           })
@@ -437,11 +504,23 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         names(active_conditions[unlist(active_conditions) == TRUE])
       }),
       updateLabels = function(new_labels) {
-        stable_labels(new_labels)
-        state$temp_labels <- new_labels
+        stable_labels(deep_copy(new_labels))
+        state$temp_labels <- deep_copy(new_labels)
+        
+        # Trigger update
+        state$last_update <- Sys.time()
       },
       updateActiveStatus = function(new_active) {
-        stable_active(new_active)
+        # Skip if we're already updating internally
+        if (updating_from_checkbox() || updating_select_all()) {
+          return()
+        }
+        
+        # Update with a deep copy
+        stable_active(deep_copy(new_active))
+        
+        # Trigger update
+        state$last_update <- Sys.time()
       },
       getFullState = getFullState,
       setFullState = setFullState
