@@ -74,6 +74,7 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       left_plot_update_trigger = runif(1),
       right_plot_update_trigger = runif(1),
       sample_labels = NULL,
+      condition_labels = NULL,
       cluster_labels = NULL,
     )
     
@@ -165,6 +166,23 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       # Update if they've changed
       if (!identical(values$sample_labels, current_labels)) {
         values$sample_labels <- current_labels
+        
+        # Force re-rendering of plots
+        values$left_plot_update_trigger <- runif(1)
+        values$right_plot_update_trigger <- runif(1)
+      }
+    })
+    
+    # Watch for changes in condition management labels
+    observe({
+      req(condition_management)
+      
+      # Get current condition labels
+      current_labels <- condition_management$getConditionLabels()
+      
+      # Update if they've changed
+      if (!identical(values$condition_labels, current_labels)) {
+        values$condition_labels <- current_labels
         
         # Force re-rendering of plots
         values$left_plot_update_trigger <- runif(1)
@@ -899,6 +917,22 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Add condition_label column if we have condition labels and a condition column
+      if (!is.null(values$condition_labels) && !is.null(values$condition_column) && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for condition labels
+        filtered_seurat$condition_label <- as.character(filtered_seurat@meta.data[[values$condition_column]])
+        # For each condition value, update its display name if we have a label
+        current_conditions <- unique(filtered_seurat@meta.data[[values$condition_column]])
+        for (condition in current_conditions) {
+          if (condition %in% names(values$condition_labels)) {
+            # Replace condition values with their labels
+            filtered_seurat$condition_label[filtered_seurat@meta.data[[values$condition_column]] == condition] <- 
+              values$condition_labels[[condition]]
+          }
+        }
+      }
+      
       # Add cluster_label column if we have cluster labels
       if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
         # Create temporary column for cluster labels
@@ -995,6 +1029,22 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           if (sample %in% names(values$sample_labels)) {
             # Replace sample IDs with their labels
             filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+          }
+        }
+      }
+      
+      # Add condition_label column if we have condition labels and a condition column
+      if (!is.null(values$condition_labels) && !is.null(values$condition_column) && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for condition labels
+        filtered_seurat$condition_label <- as.character(filtered_seurat@meta.data[[values$condition_column]])
+        # For each condition value, update its display name if we have a label
+        current_conditions <- unique(filtered_seurat@meta.data[[values$condition_column]])
+        for (condition in current_conditions) {
+          if (condition %in% names(values$condition_labels)) {
+            # Replace condition values with their labels
+            filtered_seurat$condition_label[filtered_seurat@meta.data[[values$condition_column]] == condition] <- 
+              values$condition_labels[[condition]]
           }
         }
       }
@@ -1100,6 +1150,22 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Add condition_label column if we have condition labels and a condition column
+      if (!is.null(values$condition_labels) && !is.null(values$condition_column) && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for condition labels
+        filtered_seurat$condition_label <- as.character(filtered_seurat@meta.data[[values$condition_column]])
+        # For each condition value, update its display name if we have a label
+        current_conditions <- unique(filtered_seurat@meta.data[[values$condition_column]])
+        for (condition in current_conditions) {
+          if (condition %in% names(values$condition_labels)) {
+            # Replace condition values with their labels
+            filtered_seurat$condition_label[filtered_seurat@meta.data[[values$condition_column]] == condition] <- 
+              values$condition_labels[[condition]]
+          }
+        }
+      }
+      
       # Add cluster_label column if we have cluster labels
       if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
         # Create temporary column for cluster labels
@@ -1200,6 +1266,22 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
       }
       
+      # Add condition_label column if we have condition labels and a condition column
+      if (!is.null(values$condition_labels) && !is.null(values$condition_column) && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        # Create temporary column for condition labels
+        filtered_seurat$condition_label <- as.character(filtered_seurat@meta.data[[values$condition_column]])
+        # For each condition value, update its display name if we have a label
+        current_conditions <- unique(filtered_seurat@meta.data[[values$condition_column]])
+        for (condition in current_conditions) {
+          if (condition %in% names(values$condition_labels)) {
+            # Replace condition values with their labels
+            filtered_seurat$condition_label[filtered_seurat@meta.data[[values$condition_column]] == condition] <- 
+              values$condition_labels[[condition]]
+          }
+        }
+      }
+      
       # Add cluster_label column if we have cluster labels
       if (!is.null(values$cluster_labels) && "seurat_clusters" %in% colnames(filtered_seurat@meta.data)) {
         # Create temporary column for cluster labels
@@ -1287,6 +1369,22 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
             if (sample %in% names(values$sample_labels)) {
               # Replace sample IDs with their labels
               filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+            }
+          }
+        }
+        
+        # Add condition_label column if we have condition labels and a condition column
+        if (!is.null(values$condition_labels) && !is.null(values$condition_column) && 
+            values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+          # Create temporary column for condition labels
+          filtered_seurat$condition_label <- as.character(filtered_seurat@meta.data[[values$condition_column]])
+          # For each condition value, update its display name if we have a label
+          current_conditions <- unique(filtered_seurat@meta.data[[values$condition_column]])
+          for (condition in current_conditions) {
+            if (condition %in% names(values$condition_labels)) {
+              # Replace condition values with their labels
+              filtered_seurat$condition_label[filtered_seurat@meta.data[[values$condition_column]] == condition] <- 
+                values$condition_labels[[condition]]
             }
           }
         }
@@ -1395,6 +1493,22 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
             if (sample %in% names(values$sample_labels)) {
               # Replace sample IDs with their labels
               filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+            }
+          }
+        }
+        
+        # Add condition_label column if we have condition labels and a condition column
+        if (!is.null(values$condition_labels) && !is.null(values$condition_column) && 
+            values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+          # Create temporary column for condition labels
+          filtered_seurat$condition_label <- as.character(filtered_seurat@meta.data[[values$condition_column]])
+          # For each condition value, update its display name if we have a label
+          current_conditions <- unique(filtered_seurat@meta.data[[values$condition_column]])
+          for (condition in current_conditions) {
+            if (condition %in% names(values$condition_labels)) {
+              # Replace condition values with their labels
+              filtered_seurat$condition_label[filtered_seurat@meta.data[[values$condition_column]] == condition] <- 
+                values$condition_labels[[condition]]
             }
           }
         }

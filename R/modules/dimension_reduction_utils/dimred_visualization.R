@@ -159,6 +159,12 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
   
   # First handle filtering based on active_items if provided
   if (!is.null(active_items) && length(active_items) > 0) {
+    using_condition_labels <- FALSE
+    if (color_by != "cluster" && color_by != "sample" && color_by != "gene" &&
+        "condition_label" %in% colnames(seurat_obj@meta.data) && 
+        color_by %in% colnames(seurat_obj@meta.data)) {
+      using_condition_labels <- TRUE
+    }
     if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
       # Extract cluster numbers from formatted active items (e.g., "0:Cluster 0" -> "0")
       numeric_clusters <- sapply(strsplit(active_items, ":"), function(x) as.numeric(x[1]))
@@ -335,11 +341,19 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
     
   } else if (color_by %in% colnames(seurat_obj@meta.data)) {
     # Color by any metadata column (already filtered above if needed)
-    return(DimPlot(seurat_obj, 
-                   reduction = reduction, 
-                   group.by = color_by,
-                   pt.size = pt_size,
-                   ...))
+    if (using_condition_labels) {
+      return(DimPlot(seurat_obj, 
+                     reduction = reduction, 
+                     group.by = "condition_label",
+                     pt.size = pt_size,
+                     ...))
+    } else {
+      return(DimPlot(seurat_obj, 
+                     reduction = reduction, 
+                     group.by = color_by,
+                     pt.size = pt_size,
+                     ...))
+    }
   } else {
     # Default empty plot with error message
     return(ggplot() + 
