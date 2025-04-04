@@ -373,15 +373,15 @@ create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "u
       # For clusters, we can handle numeric values directly
       numeric_clusters <- as.numeric(active_items)
       cells_to_keep <- seurat_obj$seurat_clusters %in% numeric_clusters
-
     } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
       # For samples, use direct IDs stored in active_items
       cells_to_keep <- seurat_obj$sample %in% active_items
-      
-
     } else if (color_by %in% colnames(seurat_obj@meta.data)) {
       # For condition columns, straight matching by original values
       cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% active_items
+    } else {
+      cells_to_keep <- rep(TRUE, ncol(seurat_obj))
+    }
     
     # Check if any cells match the filter
     if (!any(cells_to_keep)) {
@@ -397,7 +397,7 @@ create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "u
     plot_obj <- seurat_obj
     print("Using all cells (no active item filtering)")
   }
-  
+    
   # Extract UMAP coordinates
   umap_data <- Embeddings(plot_obj[[reduction]])
   
