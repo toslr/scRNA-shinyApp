@@ -128,17 +128,10 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       active_conditions <- condition_management$getActiveConditions()
       condition_column <- condition_management$getConditionColumn()
       
-      # Debug
-      print("DimRed module condition observer triggered")
-      print(paste("Condition column:", condition_column))
-      print("Active conditions:")
-      print(active_conditions)
-      
       # Update filtered conditions and condition column
       if (!identical(values$filtered_conditions, active_conditions) || 
           !identical(values$condition_column, condition_column)) {
         
-        print("DimRed module updating filtered conditions")
         values$filtered_conditions <- active_conditions
         values$condition_column <- condition_column
         
@@ -174,9 +167,17 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       if (!identical(values$sample_labels, current_labels)) {
         values$sample_labels <- current_labels
         
-        # Force re-rendering of plots
+        # Force re-rendering of plots and all UI elements that depend on labels
         values$left_plot_update_trigger <- runif(1)
         values$right_plot_update_trigger <- runif(1)
+        
+        # Invalidate active items to force UI update
+        if (values$left_color_by == "sample") {
+          left_active_items(get_unique_values("sample"))
+        }
+        if (values$right_color_by == "sample") {
+          right_active_items(get_unique_values("sample"))
+        }
       }
     })
     
@@ -191,9 +192,19 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       if (!identical(values$condition_labels, current_labels)) {
         values$condition_labels <- current_labels
         
-        # Force re-rendering of plots
+        # Force re-rendering of plots and all UI elements that depend on labels
         values$left_plot_update_trigger <- runif(1)
         values$right_plot_update_trigger <- runif(1)
+        
+        # Invalidate active items to force UI update
+        if (!is.null(values$condition_column) && 
+            values$left_color_by == values$condition_column) {
+          left_active_items(get_unique_values(values$condition_column))
+        }
+        if (!is.null(values$condition_column) && 
+            values$right_color_by == values$condition_column) {
+          right_active_items(get_unique_values(values$condition_column))
+        }
       }
     })
     
@@ -208,9 +219,17 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       if (!identical(values$cluster_labels, current_labels)) {
         values$cluster_labels <- current_labels
         
-        # Force re-rendering of plots
+        # Force re-rendering of plots and all UI elements that depend on labels
         values$left_plot_update_trigger <- runif(1)
         values$right_plot_update_trigger <- runif(1)
+        
+        # Invalidate active items to force UI update
+        if (values$left_color_by == "cluster") {
+          left_active_items(get_unique_values("cluster"))
+        }
+        if (values$right_color_by == "cluster") {
+          right_active_items(get_unique_values("cluster"))
+        }
       }
     })
     
@@ -379,19 +398,52 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         }
         
         return(sorted_clusters)
+      } else if (column_name == "sample" && "sample" %in% colnames(values$clustered_seurat@meta.data)) {
+        # Get sample values
+        sample_values <- unique(as.character(values$clustered_seurat$sample))
+        
+        # Number the samples sequentially
+        sample_numbers <- seq_along(sample_values)
+        names(sample_numbers) <- sample_values
+        
+        # Format sample values with sequential numbers
+        formatted_samples <- vapply(sample_values, function(sample) {
+          sample_num <- sample_numbers[sample]
+          if (!is.null(values$sample_labels) && sample %in% names(values$sample_labels)) {
+            # Use custom label if available
+            label <- values$sample_labels[[sample]]
+            paste0(sample_num-1, ":", label)  # Use 0-based indexing
+          } else {
+            paste0(sample_num-1, ":", sample)  # Use 0-based indexing
+          }
+        }, character(1))
+        
+        return(formatted_samples)
       } else if (column_name %in% colnames(values$clustered_seurat@meta.data)) {
-        # For other metadata columns
+        # For other metadata columns (like conditions)
         metadata_values <- unique(as.character(values$clustered_seurat@meta.data[[column_name]]))
         
-        # Check if values are numeric and sort appropriately
-        if (all(grepl("^\\d+$", metadata_values)) || 
-            all(grepl("^\\d+\\.\\d+$", metadata_values))) {
-          # If all values appear to be numeric, sort numerically
-          return(as.character(sort(as.numeric(metadata_values))))
-        } else {
-          # Otherwise sort alphabetically
-          return(sort(metadata_values))
-        }
+        # Number the conditions sequentially
+        condition_numbers <- seq_along(metadata_values)
+        names(condition_numbers) <- metadata_values
+        
+        # Format condition values with sequential numbers
+        formatted_conditions <- vapply(metadata_values, function(condition) {
+          condition_num <- condition_numbers[condition]
+          if (!is.null(values$condition_labels) && 
+              column_name == values$condition_column && 
+              condition %in% names(values$condition_labels)) {
+            # Use custom label if available
+            label <- values$condition_labels[[condition]]
+            paste0(condition_num-1, ":", label)  # Use 0-based indexing
+          } else {
+            paste0(condition_num-1, ":", condition)  # Use 0-based indexing
+          }
+        }, character(1))
+        
+        return(formatted_conditions)
+        
+        # Remove the old condition-specific formatting code that was here previously
       } else {
         return(character(0))
       }
@@ -797,6 +849,8 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       create_item_toggles(ns, current_items, "right_items", toggle_title)
     })
     
+    # In dimension_reduction_module.R - update get_active_toggle_items function
+    
     #' @title Get Active Toggle Items
     #' @description Gets the active items from toggle checkboxes
     #' @param input Shiny input object
@@ -810,8 +864,116 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       for (item in items) {
         safe_id <- gsub("[^a-zA-Z0-9]", "_", item)
         input_name <- paste0(input_id, "_", safe_id)
+        
         if (!is.null(input[[input_name]]) && input[[input_name]]) {
-          active_items <- c(active_items, item)
+          # If the item is in the format "number:name", extract the original value
+          if (grepl(":", item)) {
+            # Extract parts
+            parts <- strsplit(item, ":", fixed = TRUE)[[1]]
+            item_number <- parts[1]
+            item_label <- paste(parts[-1], collapse = ":")  # Rejoin in case there were multiple colons
+            
+            # Determine what type of item this is
+            if (input_id == "left_items") {
+              color_by <- values$left_color_by
+            } else if (input_id == "right_items") {
+              color_by <- values$right_color_by
+            } else {
+              color_by <- "unknown"
+            }
+            
+            # Handle based on item type
+            if (color_by == "cluster") {
+              # For clusters, we use the cluster number directly
+              active_items <- c(active_items, item_number)
+            } else if (color_by == "sample") {
+              # For samples, we need to map back to original sample IDs
+              sample_values <- unique(as.character(values$clustered_seurat$sample))
+              
+              # First try direct matching of the label
+              found <- FALSE
+              for (sample in sample_values) {
+                if (!is.null(values$sample_labels) && sample %in% names(values$sample_labels)) {
+                  if (values$sample_labels[[sample]] == item_label) {
+                    active_items <- c(active_items, sample)
+                    found <- TRUE
+                    break
+                  }
+                }
+              }
+              
+              # If not found by label, try matching by position/number
+              if (!found) {
+                # Try to use the number as an index (0-based, so add 1)
+                idx <- as.numeric(item_number) + 1
+                if (!is.na(idx) && idx <= length(sample_values) && idx > 0) {
+                  # Get the sample at this position in the sorted list
+                  sorted_samples <- sort(sample_values)
+                  sample_id <- sorted_samples[idx]
+                  active_items <- c(active_items, sample_id)
+                } else {
+                  # Last resort: try exact match with the label part
+                  if (item_label %in% sample_values) {
+                    active_items <- c(active_items, item_label)
+                  }
+                }
+              }
+            } else if (color_by == values$condition_column) {
+              # For conditions, we need to map back to original condition values
+              condition_values <- unique(as.character(values$clustered_seurat@meta.data[[values$condition_column]]))
+              
+              # First try direct matching of the label
+              found <- FALSE
+              for (condition in condition_values) {
+                if (!is.null(values$condition_labels) && condition %in% names(values$condition_labels)) {
+                  if (values$condition_labels[[condition]] == item_label) {
+                    active_items <- c(active_items, condition)
+                    found <- TRUE
+                    break
+                  }
+                }
+              }
+              
+              # If not found by label, try matching by position/number
+              if (!found) {
+                # Try to use the number as an index (0-based, so add 1)
+                idx <- as.numeric(item_number) + 1
+                if (!is.na(idx) && idx <= length(condition_values) && idx > 0) {
+                  # Get the condition at this position in the sorted list
+                  sorted_conditions <- sort(condition_values)
+                  condition_id <- sorted_conditions[idx]
+                  active_items <- c(active_items, condition_id)
+                } else {
+                  # Last resort: try exact match with the label part
+                  if (item_label %in% condition_values) {
+                    active_items <- c(active_items, item_label)
+                  }
+                }
+              }
+            } else {
+              # For any other metadata column, try a similar approach
+              metadata_values <- unique(as.character(values$clustered_seurat@meta.data[[color_by]]))
+              
+              # Try matching by position first
+              idx <- as.numeric(item_number) + 1
+              if (!is.na(idx) && idx <= length(metadata_values) && idx > 0) {
+                sorted_values <- sort(metadata_values)
+                value_id <- sorted_values[idx]
+                active_items <- c(active_items, value_id)
+              } else {
+                # Try matching the label part directly
+                if (item_label %in% metadata_values) {
+                  active_items <- c(active_items, item_label)
+                } else {
+                  # Last resort: just store the label for debugging
+                  active_items <- c(active_items, paste0("UNMATCHED:", item_label))
+                }
+              }
+            }
+          } else {
+            # If no colon (old format), just use the item as is
+            active_items <- c(active_items, item)
+          }
         }
       }
       
@@ -984,18 +1146,38 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       # Add this line to make the rendering reactive to the update trigger
       trigger <- values$left_plot_update_trigger
       
+      
       # First, create a filtered Seurat object based on active clusters
       filtered_seurat <- values$clustered_seurat
       
       # Apply global sample filtering if there are active samples defined
       if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+
         # Filter to show only cells from active samples
         cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+
         if (any(cells_to_keep)) {
           filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
         } else {
+          print("WARNING: No cells match the active sample selection")
           return(plotly_empty() %>% 
                    layout(title = "No cells match the active sample selection"))
+        }
+      }
+      
+      # Apply global condition filtering if there are active conditions defined
+      if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+          length(values$filtered_conditions) > 0 && 
+          values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+        
+        # Filter to show only cells from active conditions
+        cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+        if (any(cells_to_keep)) {
+          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+        } else {
+          print("WARNING: No cells match the active condition selection")
+          return(plotly_empty() %>% 
+                   layout(title = "No cells match the active condition selection"))
         }
       }
       
@@ -1079,6 +1261,23 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       
       # Now get active items for the coloring-specific toggles
       active_items <- get_left_active_items()
+      
+      # Add a deep debugging section if condition is selected and no items are active
+      if (values$left_color_by == values$condition_column && 
+          (is.null(active_items) || length(active_items) == 0)) {
+        print("DEEP DEBUG: Condition column selected but no active items")
+        print("Current condition column:")
+        print(values$condition_column)
+        print("Available values in dataset:")
+        print(unique(filtered_seurat@meta.data[[values$condition_column]]))
+        print("Current condition labels:")
+        print(values$condition_labels)
+        
+        # Enable a fallback mode that shows all values if no active items
+        active_items <- unique(filtered_seurat@meta.data[[values$condition_column]])
+        print("Fallback: Using all values instead:")
+        print(active_items)
+      }
       
       # Generate the plot based on coloring option with the already-filtered Seurat object
       if (values$left_color_by == "gene" && !is.null(left_selected_gene())) {
@@ -1222,6 +1421,7 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       
       # Apply global sample filtering if there are active samples defined
       if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+
         # Filter to show only cells from active samples
         cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
         if (any(cells_to_keep)) {
@@ -1239,23 +1439,12 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
         
         # Filter to show only cells from active conditions
         cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+
         if (any(cells_to_keep)) {
           filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
         } else {
           return(plotly_empty() %>% 
                    layout(title = "No cells match the active condition selection"))
-        }
-      }
-      
-      # Apply global cluster filtering if there are active clusters defined
-      if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
-        # Filter to show only cells from active clusters
-        cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
-        if (any(cells_to_keep)) {
-          filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
-        } else {
-          return(plotly_empty() %>% 
-                   layout(title = "No cells match the active cluster selection"))
         }
       }
       
@@ -1312,6 +1501,23 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       
       # Now get active items for the coloring-specific toggles
       active_items <- get_right_active_items()
+      
+      # Add a deep debugging section if condition is selected and no items are active
+      if (values$right_color_by == values$condition_column && 
+          (is.null(active_items) || length(active_items) == 0)) {
+        print("DEEP DEBUG: Condition column selected but no active items")
+        print("Current condition column:")
+        print(values$condition_column)
+        print("Available values in dataset:")
+        print(unique(filtered_seurat@meta.data[[values$condition_column]]))
+        print("Current condition labels:")
+        print(values$condition_labels)
+        
+        # Enable a fallback mode that shows all values if no active items
+        active_items <- unique(filtered_seurat@meta.data[[values$condition_column]])
+        print("Fallback: Using all values instead:")
+        print(active_items)
+      }
       
       # Generate the plot based on coloring option with the already-filtered Seurat object
       if (values$right_color_by == "gene" && !is.null(right_selected_gene())) {

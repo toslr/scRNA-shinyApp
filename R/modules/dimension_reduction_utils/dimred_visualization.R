@@ -202,17 +202,16 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
                  theme_void())
       }
     } else if (color_by %in% colnames(seurat_obj@meta.data)) {
-      # For any other metadata column
-      cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% active_items
-      
-      if (any(cells_to_keep)) {
-        seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+      # Extract condition IDs from active_items if they're in "id:name" format
+      if (any(grepl(":", active_items))) {
+        # Split by the first colon only, in case there are multiple colons
+        condition_ids <- sapply(strsplit(active_items, ":", fixed = TRUE), function(x) x[1])
       } else {
-        return(ggplot() + 
-                 annotate("text", x = 0.5, y = 0.5, 
-                          label = paste0("No cells match the selected ", color_by, " values")) + 
-                 theme_void())
+        condition_ids <- active_items
       }
+      
+      # Use original values (not labels) for filtering
+      cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% condition_ids
     }
   }
   
@@ -364,92 +363,129 @@ create_2d_umap_plot <- function(seurat_obj, color_by = "cluster", gene_id = NULL
   }
 }
 
-#' @title Create 3D UMAP Plot
-#' @description Creates an interactive 3D UMAP visualization using plotly.
-#'   Can color by cluster, sample, or any metadata column.
-#' @param seurat_obj Seurat object
-#' @param color_by String attribute to color by ("cluster", "sample", or metadata column)
-#' @param reduction String name of reduction to use
-#' @param point_size Numeric point size
-#' @param opacity Numeric opacity (0-1)
-#' @param active_items Optional vector of items to include (for filtering)
-#' @return plotly object
-#' @export
+
 create_3d_umap_plot <- function(seurat_obj, color_by = "cluster", reduction = "umap3d",
                                 point_size = 3, opacity = 0.7, active_items = NULL) {
+  
   # Handle subsetting based on active items
   if (!is.null(active_items) && length(active_items) > 0) {
     if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
-      # Extract cluster numbers from active_items if they're in "number:name" format
-      numeric_clusters <- sapply(strsplit(active_items, ":"), function(x) as.numeric(x[1]))
+      # For clusters, we can handle numeric values directly
+      numeric_clusters <- as.numeric(active_items)
       cells_to_keep <- seurat_obj$seurat_clusters %in% numeric_clusters
+
     } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
+      # For samples, use direct IDs stored in active_items
       cells_to_keep <- seurat_obj$sample %in% active_items
+      
+
     } else if (color_by %in% colnames(seurat_obj@meta.data)) {
+      # For condition columns, straight matching by original values
       cells_to_keep <- seurat_obj@meta.data[[color_by]] %in% active_items
-    } else {
-      cells_to_keep <- rep(TRUE, ncol(seurat_obj))
-    }
     
     # Check if any cells match the filter
     if (!any(cells_to_keep)) {
+      print("WARNING: No cells match the filter criteria")
       return(plotly_empty() %>% 
                layout(title = "No cells match the current filter settings"))
     }
     
+    # Subset to matching cells
     plot_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
   } else {
+    # No active items filtering - use all cells
     plot_obj <- seurat_obj
+    print("Using all cells (no active item filtering)")
   }
   
   # Extract UMAP coordinates
   umap_data <- Embeddings(plot_obj[[reduction]])
   
   # Handle different coloring options
-  if (color_by == "cluster" && "cluster_label" %in% colnames(plot_obj@meta.data)) {
-    # Get the cluster labels and create shortened versions for the legend (3 letters)
-    cluster_ids <- as.character(plot_obj$seurat_clusters)
-    cluster_labels <- plot_obj$cluster_label
-    
-    # Create shortened versions for display in the legend (cluster_number:abc)
-    short_labels <- sapply(cluster_labels, function(label) {
-      parts <- strsplit(label, ":")[[1]]
-      cluster_num <- parts[1]
-      full_name <- parts[2]
+  if (color_by == "cluster" && "seurat_clusters" %in% colnames(plot_obj@meta.data)) {
+    # Check if cluster_label column exists
+    if ("cluster_label" %in% colnames(plot_obj@meta.data)) {
+      # Get the cluster labels 
+      cluster_ids <- as.character(plot_obj$seurat_clusters)
+      cluster_labels <- plot_obj$cluster_label
       
-      # Get first 3 letters of the name (if it exists)
-      short_name <- if (nchar(full_name) >= 3) {
-        substr(full_name, 1, 3)
-      } else {
-        full_name
-      }
+      # Handle both formats: with or without colon
+      short_labels <- sapply(cluster_labels, function(label) {
+        if (grepl(":", label)) {
+          # If label contains colon, extract cluster number and first 3 letters of name
+          parts <- strsplit(label, ":")[[1]]
+          cluster_num <- parts[1]
+          name_part <- if (length(parts) > 1 && nchar(parts[2]) >= 3) {
+            substr(parts[2], 1, 3)
+          } else if (length(parts) > 1) {
+            parts[2]
+          } else {
+            "Cluster"
+          }
+          paste0(cluster_num, ":", name_part)
+        } else {
+          # Otherwise, create a label with cluster number and first 3 letters
+          cluster_id <- cluster_ids[which(cluster_labels == label)[1]]
+          name_part <- if (nchar(label) >= 3) {
+            substr(label, 1, 3)
+          } else {
+            label
+          }
+          paste0(cluster_id, ":", name_part)
+        }
+      })
       
-      paste0(cluster_num, ":", short_name)
-    })
-    
-    # Create ordered factor for short labels
-    unique_short_labels <- unique(short_labels)
-    ordered_indices <- order(as.numeric(gsub(":.*$", "", unique_short_labels)))
-    ordered_short_labels <- unique_short_labels[ordered_indices]
-    
-    color_var <- factor(short_labels, levels = ordered_short_labels)
-    plot_title <- "3D UMAP - Colored by Clusters"
-    hover_text <- paste("Cluster:", cluster_ids, "<br>Label:", cluster_labels)
+      # Create ordered factor for short labels
+      unique_short_labels <- unique(short_labels)
+      # Extract numeric cluster IDs from the labels
+      cluster_numbers <- sapply(strsplit(unique_short_labels, ":"), function(x) {
+        as.numeric(x[1])
+      })
+      # Order by numeric cluster ID
+      ordered_indices <- order(cluster_numbers)
+      ordered_short_labels <- unique_short_labels[ordered_indices]
+      
+      color_var <- factor(short_labels, levels = ordered_short_labels)
+      plot_title <- "3D UMAP - Colored by Clusters"
+      hover_text <- paste("Cluster:", cluster_ids, "<br>Label:", cluster_labels)
+    } else {
+      # Regular cluster coloring without custom labels
+      color_var <- as.factor(plot_obj$seurat_clusters)
+      plot_title <- "3D UMAP - Colored by Clusters"
+      hover_text <- paste("Cluster:", color_var)
+    }
   } else if (color_by == "sample" && "sample" %in% colnames(plot_obj@meta.data)) {
     # Check if we have a sample_label column to use instead
     if ("sample_label" %in% colnames(plot_obj@meta.data)) {
       color_var <- as.factor(plot_obj$sample_label)
       plot_title <- "3D UMAP - Colored by Sample"
-      hover_text <- paste("Sample:", color_var)
+      hover_text <- paste("Sample:", plot_obj$sample, "<br>Label:", color_var)
     } else {
       color_var <- as.factor(plot_obj$sample)
       plot_title <- "3D UMAP - Colored by Sample"
       hover_text <- paste("Sample:", color_var)
     }
+  } else if (color_by == "condition_label" && "condition_label" %in% colnames(plot_obj@meta.data)) {
+    # Handle condition label coloring
+    color_var <- as.factor(plot_obj$condition_label)
+    condition_column <- names(plot_obj@meta.data)[grep("condition", names(plot_obj@meta.data), ignore.case = TRUE)[1]]
+    original_value <- plot_obj@meta.data[[condition_column]]
+    plot_title <- paste0("3D UMAP - Colored by ", condition_column)
+    hover_text <- paste(condition_column, ":", original_value, "<br>Label:", color_var)
   } else if (color_by %in% colnames(plot_obj@meta.data)) {
-    color_var <- as.factor(plot_obj@meta.data[[color_by]])
-    plot_title <- paste0("3D UMAP - Colored by ", color_by)
-    hover_text <- paste(color_by, ":", color_var)
+    # Check if we have condition labels for this column
+    condition_column <- color_by
+    if ("condition_label" %in% colnames(plot_obj@meta.data) && 
+        plot_obj@meta.data[[condition_column]][1] == plot_obj@meta.data[[color_by]][1]) {
+      # Use the condition_label column if it matches our current color_by
+      color_var <- as.factor(plot_obj$condition_label)
+      plot_title <- paste0("3D UMAP - Colored by ", color_by)
+      hover_text <- paste(color_by, ":", plot_obj@meta.data[[color_by]], "<br>Label:", color_var)
+    } else {
+      color_var <- as.factor(plot_obj@meta.data[[color_by]])
+      plot_title <- paste0("3D UMAP - Colored by ", color_by)
+      hover_text <- paste(color_by, ":", color_var)
+    }
   } else {
     # Default if no valid coloring option
     color_var <- rep("Sample", ncol(plot_obj))

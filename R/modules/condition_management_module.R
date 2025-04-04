@@ -523,7 +523,20 @@ conditionManagementServer <- function(id, seurat_data, metadata_module) {
         state$last_update <- Sys.time()
       },
       getFullState = getFullState,
-      setFullState = setFullState
+      setFullState = setFullState,
+      updateFromButton = function() {
+        # Update the stable labels from the temporary ones
+        if (!is.null(state$temp_labels) && length(state$temp_labels) > 0) {
+          stable_labels(deep_copy(state$temp_labels))
+          
+          # Trigger update for reactivity
+          state$last_update <- Sys.time()
+          
+          showNotification("Condition labels updated", type = "message")
+        } else {
+          showNotification("No label changes to save", type = "message")
+        }
+      }
     )
   })
 }

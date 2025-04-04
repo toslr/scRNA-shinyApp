@@ -401,7 +401,7 @@ sampleManagementServer <- function(id, seurat_data) {
       updateFromButton = function() {
         # Only proceed if we have temporary labels to apply
         if (!is.null(state$temp_labels) && length(state$temp_labels) > 0) {
-          # Get current stable labels
+          # Start with current stable labels
           current_labels <- stable_labels()
           if (is.null(current_labels)) {
             current_labels <- list()
@@ -412,8 +412,11 @@ sampleManagementServer <- function(id, seurat_data) {
             current_labels[[sample]] <- state$temp_labels[[sample]]
           }
           
-          # Update stable labels atomically
+          # Apply the update
           stable_labels(current_labels)
+          
+          # Clear temp labels to avoid duplicate application
+          state$temp_labels <- list()
           
           # Trigger update in other modules
           state$last_update <- Sys.time()

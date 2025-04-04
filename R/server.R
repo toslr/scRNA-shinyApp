@@ -297,11 +297,11 @@ buildServer <- function() {
     
     # Handle condition label updates button
     observeEvent(input$updateConditionLabels, {
-      if (is.function(condition_management$getConditionLabels)) {
-        # This will trigger the module's internal update function
-        # The module handles the actual label updates
+      if (is.list(condition_management) && is.function(condition_management$updateFromButton)) {
+        # Explicitly call the update function
+        condition_management$updateFromButton()
       }
-    })
+    }, ignoreInit = TRUE)
     
     # Handle the cluster management all clusters checkbox
     observeEvent(input$selectAllClusters, {
