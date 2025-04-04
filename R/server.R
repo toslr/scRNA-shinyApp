@@ -289,11 +289,11 @@ buildServer <- function() {
     
     # Handle sample label updates button
     observeEvent(input$updateSampleLabels, {
-      if (is.function(sample_management$getSampleLabels)) {
-        # This will trigger the module's internal update function
-        # The module handles the actual label updates
+      if (is.list(sample_management) && is.function(sample_management$updateFromButton)) {
+        # Explicitly call the update function
+        sample_management$updateFromButton()
       }
-    })
+    }, ignoreInit = TRUE)
     
     # Handle the condition management all conditions checkbox
     observeEvent(input$selectAllConditions, {

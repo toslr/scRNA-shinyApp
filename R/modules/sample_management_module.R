@@ -35,7 +35,8 @@ sampleManagementServer <- function(id, seurat_data) {
     # Initialize state
     state <- reactiveValues(
       all_samples = NULL,
-      last_update = NULL
+      last_update = NULL,
+      temp_labels = NULL  # Add this to store temporary edits
     )
     
     # Get samples from Seurat object and initialize state
@@ -60,6 +61,8 @@ sampleManagementServer <- function(id, seurat_data) {
       if (is.null(current_labels) || !all(available_samples %in% names(current_labels))) {
         new_labels <- initializeSampleLabels(available_samples, current_labels)
         stable_labels(new_labels)
+        # Initialize temp_labels too
+        state$temp_labels <- new_labels
       }
       
       # Initialize active status if needed
@@ -96,8 +99,10 @@ sampleManagementServer <- function(id, seurat_data) {
             TRUE  # Default to active
           }
           
-          # Get current label
-          current_label <- if (!is.null(current_labels) && sample %in% names(current_labels)) {
+          # Get current label - Try to get from temp_labels first, then fall back to stable_labels
+          current_label <- if (!is.null(state$temp_labels) && sample %in% names(state$temp_labels)) {
+            state$temp_labels[[sample]]
+          } else if (!is.null(current_labels) && sample %in% names(current_labels)) {
             current_labels[[sample]]
           } else {
             sample  # Default to sample name
@@ -151,29 +156,17 @@ sampleManagementServer <- function(id, seurat_data) {
           # Get current value
           current_value <- input[[input_id]]
           
-          # Get current stable labels
-          current_labels <- stable_labels()
-          
-          # Get previous value
-          previous_value <- if (!is.null(current_labels) && sample %in% names(current_labels)) {
-            current_labels[[sample]]
-          } else {
-            sample
+          # Make sure temp_labels is initialized
+          if (is.null(state$temp_labels)) {
+            state$temp_labels <- list()
           }
           
-          # Only update if the value actually changed
-          if (current_value != previous_value) {
-            # Create a new copy of labels
-            new_labels <- current_labels
-            new_labels[[sample]] <- current_value
-            
-            # Update stable storage
-            stable_labels(new_labels)
-            
-            # Log the change
-            print(paste("Label for sample", sample, "changed from", 
-                        previous_value, "to", current_value))
-          }
+          # Store in temp_labels
+          state$temp_labels[[sample]] <- current_value
+          
+          # Log the change
+          print(paste("Temporary label for sample", sample, "set to", current_value))
+          
         }, ignoreInit = TRUE)
       })
     })
@@ -268,24 +261,29 @@ sampleManagementServer <- function(id, seurat_data) {
       
       req(state$all_samples)
       
-      # Get current stable labels
-      current_labels <- stable_labels()
-      
-      # Collect all input values
-      for (sample in state$all_samples) {
-        safe_id <- make_safe_id(sample)
-        input_id <- paste0("label_", safe_id)
-        
-        # Only update if we have a value
-        if (!is.null(input[[input_id]])) {
-          current_labels[[sample]] <- input[[input_id]]
+      # Only proceed if we have temporary labels to apply
+      if (!is.null(state$temp_labels) && length(state$temp_labels) > 0) {
+        # Get current stable labels
+        current_labels <- stable_labels()
+        if (is.null(current_labels)) {
+          current_labels <- list()
         }
+        
+        # Merge in temporary labels
+        for (sample in names(state$temp_labels)) {
+          current_labels[[sample]] <- state$temp_labels[[sample]]
+        }
+        
+        # Update stable labels atomically
+        stable_labels(current_labels)
+        
+        # Trigger last update for reactivity
+        state$last_update <- Sys.time()
+        
+        showNotification("Sample labels updated", type = "message")
+      } else {
+        showNotification("No label changes to save", type = "message")
       }
-      
-      # Update stable labels atomically
-      stable_labels(current_labels)
-      
-      showNotification("Sample labels updated", type = "message")
     })
     
     # Function to get state for saving
@@ -317,6 +315,9 @@ sampleManagementServer <- function(id, seurat_data) {
           if (!is.null(saved_state$sample_labels)) {
             print(paste("Restoring", length(saved_state$sample_labels), "sample labels"))
             stable_labels(saved_state$sample_labels)
+            
+            # Also set temp_labels to match
+            state$temp_labels <- saved_state$sample_labels
             
             # Print all labels being restored
             for (sample in names(saved_state$sample_labels)) {
@@ -396,7 +397,33 @@ sampleManagementServer <- function(id, seurat_data) {
         stable_active(new_active)
       },
       getFullState = getFullState,
-      setFullState = setFullState
+      setFullState = setFullState,
+      updateFromButton = function() {
+        # Only proceed if we have temporary labels to apply
+        if (!is.null(state$temp_labels) && length(state$temp_labels) > 0) {
+          # Get current stable labels
+          current_labels <- stable_labels()
+          if (is.null(current_labels)) {
+            current_labels <- list()
+          }
+          
+          # Merge in temporary labels
+          for (sample in names(state$temp_labels)) {
+            current_labels[[sample]] <- state$temp_labels[[sample]]
+          }
+          
+          # Update stable labels atomically
+          stable_labels(current_labels)
+          
+          # Trigger update in other modules
+          state$last_update <- Sys.time()
+          
+          showNotification("Sample labels updated", type = "message")
+        } else {
+          showNotification("No label changes to save", type = "message")
+        }
+      },
+      last_update = reactive({ state$last_update }) # Add this to track updates
     )
   })
 }
