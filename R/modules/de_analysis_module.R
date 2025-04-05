@@ -155,7 +155,7 @@ deAnalysisServer <- function(id, clustered_seurat, cluster_management, sample_ma
     })
     
     # Setup DE analysis handlers
-    setupAnalysisHandlers(input, output, clustered_seurat, cluster_management, state, session)
+    setupAnalysisHandlers(input, output, clustered_seurat, cluster_management, state, session, sample_managment, condition_management)
     
     setResults <- function(new_results, analysis_type = NULL, heatmap_data = NULL, general_heatmap_genes = NULL) {
       if (!is.null(new_results)) {
@@ -390,7 +390,11 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
   
   # Render DE results UI
   output$deResultsUI <- renderUI({
-    renderDEResultsUI(ns, state)
+    condition_column <- NULL
+    if (!is.null(condition_management) && is.function(condition_management$getConditionColumn)) {
+      condition_column <- condition_management$getConditionColumn()
+    }
+    renderDEResultsUI(ns, state, clustered_seurat(), condition_column)
   })
   
   # Render general heatmap UI
@@ -589,29 +593,118 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
   
   setupGeneSearch(input, output, session, clustered_seurat)
   
-  # Generate the boxplot
+  # Add this download handler for the boxplot
+  output$download_boxplot <- downloadHandler(
+    filename = function() {
+      gene_info <- if (!is.null(input$boxplot_gene) && input$boxplot_gene != "") {
+        input$boxplot_gene
+      } else {
+        "gene"
+      }
+      paste0("gene_expression_", gene_info, "_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png")
+    },
+    content = function(file) {
+      # Create high-resolution PNG
+      png(file, width = 3000, height = 2400, res = 300)
+      
+      # Get the gene ID
+      gene_id <- input$boxplot_gene
+      
+      # Get group variable
+      group_var <- input$boxplot_group
+      
+      # Get active groups for filtering
+      active_groups <- NULL
+      
+      if (group_var == "seurat_clusters") {
+        # Get active clusters from cluster management module
+        if (!is.null(cluster_management) && is.function(cluster_management$getActiveClusterIds)) {
+          active_groups <- cluster_management$getActiveClusterIds()
+        } else {
+          # Fallback - use all clusters
+          active_groups <- unique(clustered_seurat()$seurat_clusters)
+        }
+      } else if (group_var == "sample") {
+        # Get active samples from sample management module
+        if (!is.null(sample_management) && is.function(sample_management$getActiveSampleIds)) {
+          active_groups <- sample_management$getActiveSampleIds()
+        } else {
+          # Fallback - use all samples
+          active_groups <- unique(clustered_seurat()$sample)
+        }
+      }
+      
+      # Get labels if available
+      group_labels <- NULL
+      if (group_var == "seurat_clusters" && 
+          !is.null(cluster_management) && 
+          is.function(cluster_management$getClusterLabels)) {
+        group_labels <- cluster_management$getClusterLabels()
+      }
+      
+      # Determine if we should show statistics
+      show_stats <- input$boxplot_stats
+      
+      # Create comparisons list for statistics if needed
+      comparisons <- NULL
+      if (show_stats && group_var == "seurat_clusters" && !is.null(active_groups) && length(active_groups) > 1) {
+        # If we have many groups, just compare adjacent ones to avoid cluttering
+        if (length(active_groups) > 3) {
+          comparisons <- lapply(1:(length(active_groups)-1), function(i) {
+            c(as.character(active_groups[i]), as.character(active_groups[i+1]))
+          })
+        } else {
+          # For few groups, compare all pairs
+          comparisons <- combn(as.character(active_groups), 2, simplify = FALSE)
+        }
+      }
+      
+      # Generate and save the plot
+      p <- createExpressionBoxplot(
+        clustered_seurat(),
+        gene_id = gene_id,
+        group_by = group_var,
+        comparisons = comparisons,
+        active_groups = active_groups,
+        cluster_labels = group_labels
+      )
+      
+      print(p)
+      dev.off()
+    }
+  )
+  
+  # Generate the boxplot with improved error handling
   output$gene_boxplot <- renderPlot({
-    req(state$de_genes(), clustered_seurat())
+    req(clustered_seurat())
     
     # Get the gene ID
     gene_id <- input$boxplot_gene
     
-    # Check if gene_id is empty (could happen with selectizeInput's search)
+    # Check if gene_id is empty
     if (is.null(gene_id) || gene_id == "") {
       return(ggplot() + 
                annotate("text", x = 0.5, y = 0.5, 
-                        label = "Please select a gene from the dropdown") + 
+                        label = "Please select a gene from the dropdown or type to search") + 
+               theme_void())
+    }
+    
+    # Check if gene exists in the dataset
+    if (!(gene_id %in% rownames(clustered_seurat()))) {
+      return(ggplot() + 
+               annotate("text", x = 0.5, y = 0.5, 
+                        label = paste("Gene", gene_id, "not found in dataset")) + 
                theme_void())
     }
     
     # Get group variable
     group_var <- input$boxplot_group
     
-    # Get active clusters/samples - with proper error handling
+    # Get active groups for filtering
     active_groups <- NULL
     
     if (group_var == "seurat_clusters") {
-      # Get active clusters with robust error handling
+      # Get active clusters
       tryCatch({
         if (!is.null(cluster_management) && is.function(cluster_management$getActiveClusterIds)) {
           active_groups <- cluster_management$getActiveClusterIds()
@@ -619,17 +712,8 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       }, error = function(e) {
         print(paste("Error getting active clusters:", e$message))
       })
-      
-      # If still NULL, try to get all clusters as a fallback
-      if (is.null(active_groups) || length(active_groups) == 0) {
-        tryCatch({
-          active_groups <- unique(clustered_seurat()$seurat_clusters)
-        }, error = function(e) {
-          print(paste("Error getting all clusters:", e$message))
-        })
-      }
     } else if (group_var == "sample") {
-      # Get active samples with robust error handling
+      # Get active samples
       tryCatch({
         if (!is.null(sample_management) && is.function(sample_management$getActiveSampleIds)) {
           active_groups <- sample_management$getActiveSampleIds()
@@ -637,28 +721,22 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       }, error = function(e) {
         print(paste("Error getting active samples:", e$message))
       })
-      
-      # If still NULL, try to get all samples as a fallback
-      if (is.null(active_groups) || length(active_groups) == 0) {
-        tryCatch({
-          active_groups <- unique(clustered_seurat()$sample)
-        }, error = function(e) {
-          print(paste("Error getting all samples:", e$message))
-        })
-      }
+    } else if (!is.null(condition_management) && 
+               group_var == condition_management$getConditionColumn()) {
+      # Get active conditions
+      tryCatch({
+        active_groups <- condition_management$getActiveConditions()
+      }, error = function(e) {
+        print(paste("Error getting active conditions:", e$message))
+      })
     }
     
-    # Final fallback - if we still don't have active groups, just use NULL
-    # and let createExpressionBoxplot handle it (it will use all data)
-    
-    # Get the appropriate labels
+    # Get cluster labels if available
     group_labels <- NULL
     if (group_var == "seurat_clusters") {
       tryCatch({
         if (!is.null(cluster_management) && is.function(cluster_management$getClusterLabels)) {
           group_labels <- cluster_management$getClusterLabels()
-        } else {
-          group_labels <- state$cluster_labels
         }
       }, error = function(e) {
         print(paste("Error getting cluster labels:", e$message))
@@ -668,27 +746,13 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     # Determine if we should show statistics
     show_stats <- input$boxplot_stats
     
-    # Create comparisons list for statistics if needed
-    comparisons <- NULL
-    if (show_stats && group_var == "seurat_clusters" && !is.null(active_groups) && length(active_groups) > 1) {
-      # If we have many groups, just compare adjacent ones to avoid cluttering
-      if (length(active_groups) > 3) {
-        comparisons <- lapply(1:(length(active_groups)-1), function(i) {
-          c(as.character(active_groups[i]), as.character(active_groups[i+1]))
-        })
-      } else {
-        # For few groups, compare all pairs
-        comparisons <- combn(as.character(active_groups), 2, simplify = FALSE)
-      }
-    }
-    
     # Create the boxplot with robust error handling
     tryCatch({
       createExpressionBoxplot(
         clustered_seurat(),
         gene_id = gene_id,
         group_by = group_var,
-        comparisons = comparisons,
+        comparisons = if(show_stats) TRUE else NULL,
         active_groups = active_groups,
         cluster_labels = group_labels
       )
@@ -950,7 +1014,7 @@ generateDEHeatmap <- function(seurat_obj, top_n_genes, de_results, state) {
 #' @param state Reactive state list
 #' @return UI elements for DE results
 #' @keywords internal
-renderDEResultsUI <- function(ns, state) {
+renderDEResultsUI <- function(ns, state, clustered_seurat, condition_column = NULL) {
   current_state <- state$analysis_state()
   
   if (is.null(current_state) || current_state == "none") {
@@ -1011,8 +1075,7 @@ renderDEResultsUI <- function(ns, state) {
       ),
       plotOutput(ns("heatmapPlot"), height = "600px"),
       
-      createBoxplotUI(ns, current_de_genes, clustered_seurat(), state$active_clusters, state$cluster_labels)
-      
+      createBoxplotUI(ns, current_de_genes, clustered_seurat, state$active_clusters, state$cluster_labels, condition_column)
     )
   }
 }
@@ -1545,7 +1608,7 @@ createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels = NULL, activ
 #' @param cluster_labels Named vector of cluster labels
 #' @return UI elements for boxplot visualization
 #' @keywords internal
-createBoxplotUI <- function(ns, de_results, clustered_seurat, active_clusters, cluster_labels) {
+createBoxplotUI <- function(ns, de_results, seurat_obj, active_clusters, cluster_labels, condition_column = NULL) {
   # Get top genes from DE results for initial suggestions
   top_genes <- NULL
   gene_choices <- NULL
@@ -1566,21 +1629,25 @@ createBoxplotUI <- function(ns, de_results, clustered_seurat, active_clusters, c
              top_genes)
     )
   } else {
-    # If no DE results, still provide some initial suggestions from the full dataset
-    if (!is.null(clustered_seurat) && !is.null(rownames(clustered_seurat))) {
-      # Just take some random genes as examples if no DE results
-      sample_size <- min(20, length(rownames(clustered_seurat)))
+    # If no DE results, provide some initial suggestions from the full dataset
+    if (!is.null(seurat_obj) && !is.null(rownames(seurat_obj))) {
+      # Take some random genes as examples
+      sample_size <- min(50, length(rownames(seurat_obj)))
       if (sample_size > 0) {
-        sample_genes <- sample(rownames(clustered_seurat), sample_size)
+        # Randomly sample genes to show initially
+        set.seed(42)  # For reproducibility
+        sample_genes <- sample(rownames(seurat_obj), sample_size)
         
         # Try to get gene symbols if available
-        gene_mapping <- clustered_seurat@misc$gene_mapping
+        gene_mapping <- seurat_obj@misc$gene_mapping
         if (!is.null(gene_mapping)) {
-          gene_labels <- ifelse(
-            sample_genes %in% names(gene_mapping) & !is.na(gene_mapping[sample_genes]),
-            paste0(gene_mapping[sample_genes], " (", sample_genes, ")"),
-            sample_genes
-          )
+          gene_labels <- sapply(sample_genes, function(gene) {
+            if (gene %in% names(gene_mapping) && !is.na(gene_mapping[gene])) {
+              paste0(gene_mapping[gene], " (", gene, ")")
+            } else {
+              gene
+            }
+          })
           gene_choices <- setNames(sample_genes, gene_labels)
         } else {
           gene_choices <- setNames(sample_genes, sample_genes)
@@ -1589,11 +1656,41 @@ createBoxplotUI <- function(ns, de_results, clustered_seurat, active_clusters, c
     }
   }
   
-  if (is.null(gene_choices)) {
-    return(div(
-      class = "alert alert-info",
-      "No gene expression data available."
-    ))
+  if (is.null(gene_choices) || length(gene_choices) == 0) {
+    # Fallback if we still don't have gene choices
+    gene_choices <- setNames(
+      "No genes available",
+      "No genes available"
+    )
+  }
+  
+  # Start with basic grouping options
+  group_choices <- c("Cluster" = "seurat_clusters", "Sample" = "sample")
+  
+  # Add condition column if available from condition management
+  if (!is.null(condition_column) && condition_column %in% colnames(seurat_obj@meta.data)) {
+    # Create a nice display name
+    display_name <- gsub("_", " ", condition_column)
+    display_name <- paste0(toupper(substr(display_name, 1, 1)), substr(display_name, 2, nchar(display_name)))
+    group_choices[display_name] <- condition_column
+  }
+  
+  # Also scan for other possible condition columns in the metadata
+  if (!is.null(seurat_obj)) {
+    meta_cols <- colnames(seurat_obj@meta.data)
+    condition_cols <- grep("condition|treatment|group|genotype|timepoint", 
+                           meta_cols, value = TRUE, ignore.case = TRUE)
+    
+    if (length(condition_cols) > 0) {
+      for (col in condition_cols) {
+        if (col != "seurat_clusters" && col != "sample" && col != condition_column) {
+          # Create a nice display name
+          display_name <- gsub("_", " ", col)
+          display_name <- paste0(toupper(substr(display_name, 1, 1)), substr(display_name, 2, nchar(display_name)))
+          group_choices[display_name] <- col
+        }
+      }
+    }
   }
   
   # Create UI elements
@@ -1601,16 +1698,16 @@ createBoxplotUI <- function(ns, de_results, clustered_seurat, active_clusters, c
     fluidRow(
       column(12,
              h4("Gene Expression Boxplot"),
-             p("Search and select any gene to visualize expression distribution across clusters.")
+             p("Search and select any gene to visualize expression distribution. Type to search among all genes.")
       )
     ),
     fluidRow(
       column(6,
-             # Enhanced selectizeInput with server-side search
+             # Enhanced selectizeInput with server-side search - starting with an empty selection
              selectizeInput(ns("boxplot_gene"), 
                             "Select gene:", 
                             choices = gene_choices,
-                            selected = if(length(gene_choices) > 0) gene_choices[1] else NULL,
+                            selected = NULL,  # Start with empty selection
                             options = list(
                               placeholder = 'Type to search for any gene',
                               onInitialize = I('function() { this.setValue(""); }'),
@@ -1632,8 +1729,7 @@ createBoxplotUI <- function(ns, de_results, clustered_seurat, active_clusters, c
       column(6,
              selectInput(ns("boxplot_group"), 
                          "Group by:", 
-                         choices = c("Cluster" = "seurat_clusters", 
-                                     "Sample" = "sample"),
+                         choices = group_choices,
                          selected = "seurat_clusters")
       )
     ),
@@ -1657,14 +1753,6 @@ createBoxplotUI <- function(ns, de_results, clustered_seurat, active_clusters, c
   )
 }
 
-#' @title Setup Gene Search Observer
-#' @description Sets up an observer to handle gene search queries
-#' @param input Shiny input object
-#' @param output Shiny output object 
-#' @param session Shiny session object
-#' @param clustered_seurat Reactive expression that returns the clustered Seurat object
-#' @return None (used for side effects)
-#' @keywords internal
 setupGeneSearch <- function(input, output, session, clustered_seurat) {
   ns <- session$ns
   
@@ -1681,7 +1769,7 @@ setupGeneSearch <- function(input, output, session, clustered_seurat) {
     # Get gene mapping if available
     gene_mapping <- seurat_obj@misc$gene_mapping
     
-    # Find matches in gene IDs
+    # Find matches in gene IDs - search across ALL genes in the dataset
     id_matches <- grep(query, rownames(seurat_obj), value = TRUE, ignore.case = TRUE)
     
     # Find matches in gene symbols if mapping exists

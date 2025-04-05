@@ -343,24 +343,59 @@ createExpressionBoxplot <- function(seurat_obj, gene_id, group_by = "seurat_clus
     })
   }
   
-  # Create default group labels if not provided
-  if (group_by == "seurat_clusters" && is.null(cluster_labels)) {
-    unique_groups <- sort(unique(seurat_obj[[group_by]]))
-    cluster_labels <- setNames(
-      paste("Cluster", unique_groups),
-      as.character(unique_groups)
-    )
+  # Get available groups properly
+  available_groups <- NULL
+  tryCatch({
+    if (is.data.frame(seurat_obj[[group_by]])) {
+      available_groups <- unlist(seurat_obj[[group_by]])
+    } else {
+      available_groups <- seurat_obj[[group_by]]
+    }
+    available_groups <- as.character(unique(available_groups))
+  }, error = function(e) {
+    available_groups <- as.character(unique(seurat_obj@meta.data[[group_by]]))
+  })
+  
+  if (is.null(available_groups) || length(available_groups) == 0) {
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = "Could not determine available groups") + 
+             theme_void())
   }
   
-  # If active_groups is NULL or empty, use all available groups
+  # Process active_groups
   if (is.null(active_groups) || length(active_groups) == 0) {
-    active_groups <- unique(seurat_obj[[group_by]])
+    active_groups <- available_groups
+  } else {
+    active_groups <- as.character(active_groups)
+    valid_active_groups <- intersect(active_groups, available_groups)
+    
+    if (length(valid_active_groups) == 0 && group_by == "seurat_clusters") {
+      # Try zero-based to one-based adjustment for cluster numbers
+      active_plus_one <- as.character(as.numeric(active_groups) + 1)
+      valid_plus_one <- intersect(active_plus_one, available_groups)
+      
+      active_minus_one <- as.character(as.numeric(active_groups) - 1)
+      valid_minus_one <- intersect(active_minus_one, available_groups)
+      
+      if (length(valid_plus_one) > length(valid_minus_one)) {
+        valid_active_groups <- valid_plus_one
+      } else if (length(valid_minus_one) > 0) {
+        valid_active_groups <- valid_minus_one
+      }
+    }
+    
+    if (length(valid_active_groups) == 0) {
+      valid_active_groups <- available_groups
+    }
+    
+    active_groups <- valid_active_groups
   }
   
-  # Filter by active groups
-  cells_to_keep <- seurat_obj[[group_by]] %in% active_groups
+  # Filter for cells matching our active groups
+  cells_to_keep <- seurat_obj@meta.data[[group_by]] %in% active_groups
   
-  # Check if any cells match the filter
+  # Check if any cells match
   if (sum(cells_to_keep) == 0) {
     return(ggplot() + 
              annotate("text", x = 0.5, y = 0.5, 
@@ -368,43 +403,62 @@ createExpressionBoxplot <- function(seurat_obj, gene_id, group_by = "seurat_clus
              theme_void())
   }
   
-  # Subset the Seurat object
-  seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+  # Subset to matching cells
+  filtered_seurat <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
   
   # Get expression data
-  expr_data <- GetAssayData(seurat_obj, slot = "data")[gene_id, ]
+  expr_data <- GetAssayData(filtered_seurat, slot = "data")[gene_id, ]
   
   # Create data frame for plotting
   plot_data <- data.frame(
     Expression = expr_data,
-    Group = seurat_obj[[group_by]],
+    Group = filtered_seurat@meta.data[[group_by]],
     stringsAsFactors = FALSE
   )
   
-  # Convert Group to factor with proper labels if provided
+  # Handle factor conversion and labels for plotting
   if (group_by == "seurat_clusters" && !is.null(cluster_labels)) {
-    # Create a mapping function that uses cluster_labels when available
-    group_labels <- sapply(plot_data$Group, function(x) {
-      group_key <- as.character(x)
-      if (group_key %in% names(cluster_labels)) {
-        cluster_labels[[group_key]]
+    plot_data$Group <- as.character(plot_data$Group)
+    plot_data$GroupLabel <- sapply(plot_data$Group, function(x) {
+      if (x %in% names(cluster_labels)) {
+        return(cluster_labels[[x]])
       } else {
-        if (group_by == "seurat_clusters") {
-          paste("Cluster", x)
-        } else {
-          as.character(x)
-        }
+        return(paste("Cluster", x))
       }
     })
-    plot_data$Group <- factor(group_labels)
+    
+    # Create ordered factor based on numeric cluster IDs
+    # First extract the unique groups and their order
+    unique_groups <- unique(plot_data$Group)
+    group_order <- order(as.numeric(unique_groups))
+    ordered_levels <- unique_groups[group_order]
+    
+    # Map the ordered clusters to their labels
+    ordered_labels <- sapply(ordered_levels, function(x) {
+      if (x %in% names(cluster_labels)) {
+        return(cluster_labels[[x]])
+      } else {
+        return(paste("Cluster", x))
+      }
+    })
+    
+    # Set factor levels for ordered plotting
+    plot_data$GroupLabel <- factor(plot_data$GroupLabel, levels = ordered_labels)
+    group_var_to_plot <- "GroupLabel"
   } else {
-    plot_data$Group <- factor(plot_data$Group)
+    # For non-cluster variables, just order numerically if possible
+    if (all(grepl("^[0-9]+$", plot_data$Group))) {
+      plot_data$Group <- factor(plot_data$Group, 
+                                levels = unique(plot_data$Group)[order(as.numeric(unique(plot_data$Group)))])
+    } else {
+      plot_data$Group <- factor(plot_data$Group)
+    }
+    group_var_to_plot <- "Group"
   }
   
   # Create base boxplot
-  p <- ggplot(plot_data, aes(x = Group, y = Expression)) +
+  p <- ggplot(plot_data, aes_string(x = group_var_to_plot, y = "Expression")) +
     geom_boxplot(outlier.size = 0.5, fill = "lightblue") +
-    # Add individual points for better visualization
     geom_jitter(width = 0.2, height = 0, size = 0.5, alpha = 0.3) +
     labs(title = paste("Expression of", gene_symbol),
          y = "Normalized expression",
@@ -415,15 +469,27 @@ createExpressionBoxplot <- function(seurat_obj, gene_id, group_by = "seurat_clus
           axis.title = element_text(size = 12))
   
   # Add statistical comparisons if requested
-  if (!is.null(comparisons) && length(comparisons) > 0) {
-    # Check if we have the ggpubr package available
-    if (!requireNamespace("ggpubr", quietly = TRUE)) {
-      p <- p + labs(subtitle = "Install ggpubr package for statistical annotations")
-    } else {
+  if (!is.null(comparisons) && requireNamespace("ggpubr", quietly = TRUE)) {
+    # Get the levels from the factor for consistent ordering
+    actual_groups <- levels(plot_data[[group_var_to_plot]])
+    
+    if (length(actual_groups) > 1) {
+      if (length(actual_groups) <= 3) {
+        # For few groups, compare all pairs
+        valid_comparisons <- combn(actual_groups, 2, simplify = FALSE)
+      } else {
+        # For many groups, just compare adjacent pairs
+        valid_comparisons <- lapply(1:(length(actual_groups)-1), function(i) {
+          c(actual_groups[i], actual_groups[i+1])
+        })
+      }
+      
       # Add statistical comparisons
-      p <- ggpubr::stat_compare_means(comparisons = comparisons, 
-                                      method = "wilcox.test",
-                                      label = "p.format")(p)
+      p <- p + ggpubr::stat_compare_means(
+        comparisons = valid_comparisons,
+        method = "wilcox.test",
+        label = "p.format"
+      )
     }
   }
   
