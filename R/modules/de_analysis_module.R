@@ -611,21 +611,89 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       NULL
     })
     
-    # Now call the function with robust error handling
-    tryCatch({
-      createExpressionHeatmap(
-        clustered_seurat(),
-        state$heatmap_data(),
-        cluster_labels,
-        active_clusters
-      )
-    }, error = function(e) {
-      # Return a simple error message plot
-      ggplot() + 
-        annotate("text", x = 0.5, y = 0.5, 
-                 label = paste("Error creating heatmap:", e$message)) + 
-        theme_void()
-    })
+    # Determine what grouping to use based on the analysis type
+    group_by <- "seurat_clusters"  # Default
+    
+    # See if we have a stored group_by in state
+    if (!is.null(state$group_by)) {
+      group_by <- state$group_by
+    } else {
+      # Try to determine from the heatmap data or analysis state
+      current_state <- state$analysis_state()
+      if (current_state == "sample_comparison") {
+        group_by <- "sample"
+      } else if (current_state == "condition_comparison" && !is.null(condition_management)) {
+        # Get condition column from condition management
+        condition_col <- condition_management$getConditionColumn()
+        if (!is.null(condition_col)) {
+          group_by <- condition_col
+        }
+      }
+    }
+    
+    # For non-cluster groupings, get the appropriate active items and labels
+    if (group_by == "sample" && !is.null(sample_management)) {
+      # Use sample management for active samples and labels
+      active_items <- sample_management$getActiveSampleIds()
+      sample_labels <- sample_management$getSampleLabels()
+      
+      # Now call the function with robust error handling
+      tryCatch({
+        createExpressionHeatmap(
+          clustered_seurat(),
+          state$heatmap_data(),
+          sample_labels,  # Use sample labels
+          active_items,   # Use active samples
+          group_by = "sample"  # Group by sample
+        )
+      }, error = function(e) {
+        # Return a simple error message plot
+        ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, 
+                   label = paste("Error creating heatmap:", e$message)) + 
+          theme_void()
+      })
+    } else if (group_by != "seurat_clusters" && group_by != "sample" && 
+               !is.null(condition_management) && 
+               group_by == condition_management$getConditionColumn()) {
+      # Use condition management for active conditions and labels
+      active_items <- condition_management$getActiveConditions()
+      condition_labels <- condition_management$getConditionLabels()
+      
+      # Now call the function with robust error handling
+      tryCatch({
+        createExpressionHeatmap(
+          clustered_seurat(),
+          state$heatmap_data(),
+          condition_labels,  # Use condition labels
+          active_items,      # Use active conditions
+          group_by = group_by  # Group by condition column
+        )
+      }, error = function(e) {
+        # Return a simple error message plot
+        ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, 
+                   label = paste("Error creating heatmap:", e$message)) + 
+          theme_void()
+      })
+    } else {
+      # Default cluster-based heatmap
+      tryCatch({
+        createExpressionHeatmap(
+          clustered_seurat(),
+          state$heatmap_data(),
+          cluster_labels,
+          active_clusters,
+          group_by = "seurat_clusters"  # Group by clusters
+        )
+      }, error = function(e) {
+        # Return a simple error message plot
+        ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, 
+                   label = paste("Error creating heatmap:", e$message)) + 
+          theme_void()
+      })
+    }
   })
   
   general_heatmap_plot <- reactive({
@@ -702,15 +770,24 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       
       # Call createSampleHeatmap with sample labels
       tryCatch({
-        # Using the createGeneralHeatmap function but with "sample" as the identity column
+        # Make a copy of the Seurat object to modify for this plot
         seurat_obj <- clustered_seurat()
+        # Set sample as the identity for heatmap grouping
         Idents(seurat_obj) <- "sample"
+        
+        # Get active samples for filtering
+        active_samples <- NULL
+        if (!is.null(sample_management) && is.function(sample_management$getActiveSampleIds)) {
+          active_samples <- sample_management$getActiveSampleIds()
+        }
+        
+        # Create the general heatmap, using samples as the groups
         createGeneralHeatmap(
           seurat_obj,
           state$general_heatmap_genes(),
           sample_labels,
-          NULL,  # No need to filter by clusters
-          NULL   # No need for cluster ordering
+          NULL,  # No cluster filtering needed
+          NULL   # No cluster ordering needed
         )
       }, error = function(e) {
         ggplot() + 
@@ -742,14 +819,24 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       
       # Call createConditionHeatmap with condition labels
       tryCatch({
+        # Make a copy of the Seurat object to modify for this plot
         seurat_obj <- clustered_seurat()
+        # Set the condition column as the identity for heatmap grouping
         Idents(seurat_obj) <- condition_column
+        
+        # Get active conditions for filtering
+        active_conditions <- NULL
+        if (!is.null(condition_management) && is.function(condition_management$getActiveConditions)) {
+          active_conditions <- condition_management$getActiveConditions()
+        }
+        
+        # Create the general heatmap, using conditions as the groups
         createGeneralHeatmap(
           seurat_obj,
           state$general_heatmap_genes(),
           condition_labels,
-          NULL,  # No need to filter by clusters
-          NULL   # No need for cluster ordering
+          NULL,  # No cluster filtering needed
+          NULL   # No cluster ordering needed
         )
       }, error = function(e) {
         ggplot() + 
@@ -1188,9 +1275,44 @@ generateDEHeatmap <- function(seurat_obj, top_n_genes, de_results, state) {
     de_results <- de_results[order(de_results$p_val_adj, -abs(de_results$avg_log2FC)), ]
     top_genes <- rownames(de_results)[1:n_genes]
     
+    # Determine what grouping to use based on the comparison
+    group_by <- "seurat_clusters"  # Default
+    
+    # Check if this is a sample comparison
+    if ("comparison" %in% colnames(de_results)) {
+      comparison_text <- unique(de_results$comparison)[1]
+      if (grepl("Sample", comparison_text, ignore.case = TRUE)) {
+        group_by <- "sample"
+      } else if (grepl("Condition", comparison_text, ignore.case = TRUE)) {
+        # Find a condition column - look for the one mentioned in the comparison
+        condition_cols <- grep("condition|treatment|group|genotype", 
+                               colnames(seurat_obj@meta.data), 
+                               value = TRUE, ignore.case = TRUE)
+        if (length(condition_cols) > 0) {
+          # Try to find the best match based on the comparison text
+          best_match <- condition_cols[1]  # Default to first
+          for (col in condition_cols) {
+            col_values <- unique(seurat_obj@meta.data[[col]])
+            if (any(sapply(col_values, function(val) grepl(val, comparison_text, fixed = TRUE)))) {
+              best_match <- col
+              break
+            }
+          }
+          group_by <- best_match
+        }
+      }
+    }
+    
+    # Store the analysis type
+    state$analysis_type <- switch(group_by,
+                                  "seurat_clusters" = "cluster_de",
+                                  "sample" = "sample_de",
+                                  "condition_de")
+    
     # Update state
     state$heatmap_data(top_genes)
     state$heatmap_type("specific")
+    state$group_by <- group_by  # Store the grouping in state
   })
 }
 
@@ -1359,10 +1481,15 @@ renderGeneralHeatmapUI <- function(ns, state, active_cluster_list) {
 #' @param active_cluster_list Reactive expression containing active clusters
 #' @keywords internal
 setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active_cluster_list) {
-  # Specific DE heatmap download
+  # Download handler for the heatmap
   output$downloadHeatmapPlot <- downloadHandler(
     filename = function() {
-      paste("heatmap_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      group_by <- if (!is.null(state$group_by)) state$group_by else "seurat_clusters"
+      prefix <- switch(group_by,
+                       "seurat_clusters" = "cluster",
+                       "sample" = "sample",
+                       "condition")
+      paste0(prefix, "_heatmap_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png")
     },
     content = function(file) {
       # Create high-resolution PNG device
@@ -1371,35 +1498,69 @@ setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active
       # Generate the heatmap directly
       current_heatmap_data <- state$heatmap_data()
       
-      # Get cluster labels - try to get from state or use defaults
-      current_labels <- NULL
-      tryCatch({
-        if (!is.null(state$cluster_labels)) {
-          if (is.function(state$cluster_labels)) {
-            current_labels <- state$cluster_labels()
-          } else {
-            current_labels <- state$cluster_labels
-          }
-        }
-      }, error = function(e) {
-        # Continue with null if error
-      })
+      # Determine what grouping to use
+      group_by <- if (!is.null(state$group_by)) state$group_by else "seurat_clusters"
       
-      if (is.null(current_labels)) {
-        unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
-        current_labels <- setNames(
-          paste("Cluster", unique_clusters),
-          as.character(unique_clusters)
+      if (group_by == "sample" && !is.null(sample_management)) {
+        # Use sample management for sample-based heatmap
+        active_items <- sample_management$getActiveSampleIds()
+        sample_labels <- sample_management$getSampleLabels()
+        
+        createExpressionHeatmap(
+          clustered_seurat(),
+          current_heatmap_data,
+          sample_labels,
+          active_items,
+          group_by = "sample"
+        )
+      } else if (group_by != "seurat_clusters" && group_by != "sample" && 
+                 !is.null(condition_management) && 
+                 group_by == condition_management$getConditionColumn()) {
+        # Use condition management for condition-based heatmap
+        active_items <- condition_management$getActiveConditions()
+        condition_labels <- condition_management$getConditionLabels()
+        
+        createExpressionHeatmap(
+          clustered_seurat(),
+          current_heatmap_data,
+          condition_labels,
+          active_items,
+          group_by = group_by
+        )
+      } else {
+        # Default cluster-based heatmap
+        # Get cluster labels
+        current_labels <- NULL
+        tryCatch({
+          if (!is.null(state$cluster_labels)) {
+            if (is.function(state$cluster_labels)) {
+              current_labels <- state$cluster_labels()
+            } else {
+              current_labels <- state$cluster_labels
+            }
+          }
+        }, error = function(e) {
+          # Continue with null if error
+        })
+        
+        if (is.null(current_labels)) {
+          unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
+          current_labels <- setNames(
+            paste("Cluster", unique_clusters),
+            as.character(unique_clusters)
+          )
+        }
+        
+        active_clusters_num <- as.numeric(active_cluster_list())
+        
+        createExpressionHeatmap(
+          clustered_seurat(),
+          current_heatmap_data,
+          current_labels,
+          active_clusters_num,
+          group_by = "seurat_clusters"
         )
       }
-      
-      active_clusters_num <- as.numeric(active_cluster_list())
-      
-      # For all analysis types, show expression in all active clusters
-      createExpressionHeatmap(clustered_seurat(), 
-                              current_heatmap_data, 
-                              current_labels,
-                              active_clusters_num)
       
       # Close the device to save the file
       dev.off()
@@ -1756,282 +1917,6 @@ createVolcanoPlot <- function(results) {
     labs(title = unique(results$comparison),
          color = "Significant") +
     theme(legend.position = "bottom")
-}
-
-#' @title Create Expression Heatmap
-#' @description Creates a heatmap of gene expression across clusters.
-#' @param seurat_obj Seurat object containing the data
-#' @param top_genes Vector of genes to include in the heatmap
-#' @param cluster_labels Named vector of cluster labels
-#' @param active_clusters Vector of active cluster IDs
-#' @return A pheatmap object showing gene expression
-#' @keywords internal
-createExpressionHeatmap <- function(seurat_obj, top_genes, cluster_labels = NULL, active_clusters = NULL) {
-  # Safety check for empty gene list
-  if (length(top_genes) == 0) {
-    # Create an empty plot with a message
-    return(ggplot() + 
-             annotate("text", x = 0.5, y = 0.5, label = "No genes to display") + 
-             theme_void())
-  }
-  
-  # Ensure cluster_labels is not a function (reactive value)
-  if (is.function(cluster_labels)) {
-    tryCatch({
-      cluster_labels <- cluster_labels()
-    }, error = function(e) {
-      cluster_labels <- NULL
-    })
-  }
-  
-  # Create default cluster labels if not provided
-  if (is.null(cluster_labels)) {
-    unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
-    cluster_labels <- setNames(
-      paste("Cluster", unique_clusters),
-      as.character(unique_clusters)
-    )
-  }
-  
-  # Subset to active clusters if provided
-  if (!is.null(active_clusters) && length(active_clusters) > 0) {
-    active_cells <- seurat_obj$seurat_clusters %in% active_clusters
-    seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[active_cells])
-  }
-  
-  # Ensure all top genes are in the Seurat object
-  genes_present <- intersect(top_genes, rownames(seurat_obj))
-  if (length(genes_present) == 0) {
-    return(ggplot() + 
-             annotate("text", x = 0.5, y = 0.5, 
-                      label = "None of the selected genes are present in the dataset") + 
-             theme_void())
-  }
-  
-  # Get expression data for genes that exist in the dataset
-  expr_data <- GetAssayData(seurat_obj, slot = "data")[genes_present, , drop = FALSE]
-  
-  # Calculate cluster means
-  clusters <- seurat_obj$seurat_clusters
-  unique_clusters <- sort(unique(clusters))
-  
-  # Check if we have clusters
-  if (length(unique_clusters) == 0) {
-    return(ggplot() + 
-             annotate("text", x = 0.5, y = 0.5, 
-                      label = "No clusters to display") + 
-             theme_void())
-  }
-  
-  cluster_means <- sapply(unique_clusters, function(clust) {
-    cluster_cells <- which(clusters == clust)
-    if (length(cluster_cells) > 0) {
-      rowMeans(expr_data[, cluster_cells, drop = FALSE])
-    } else {
-      rep(NA, nrow(expr_data))
-    }
-  })
-  
-  # Set column names using cluster labels
-  col_names <- sapply(unique_clusters, function(x) {
-    cluster_key <- as.character(x)
-    if (cluster_key %in% names(cluster_labels)) {
-      cluster_labels[[cluster_key]]
-    } else {
-      paste("Cluster", x)
-    }
-  })
-  colnames(cluster_means) <- col_names
-  
-  # Scale data
-  if (is.matrix(cluster_means) && nrow(cluster_means) > 1 && ncol(cluster_means) > 1) {
-    # Only scale if we have enough data
-    scaled_data <- t(scale(t(cluster_means)))
-  } else {
-    # Otherwise just use the original data
-    scaled_data <- cluster_means
-  }
-  
-  # Get gene labels
-  gene_mapping <- seurat_obj@misc$gene_mapping
-  gene_labels <- if (!is.null(gene_mapping) && all(rownames(scaled_data) %in% names(gene_mapping))) {
-    gene_mapping[rownames(scaled_data)]
-  } else {
-    rownames(scaled_data)
-  }
-  gene_labels[is.na(gene_labels)] <- rownames(scaled_data)[is.na(gene_labels)]
-  
-  # Create heatmap
-  tryCatch({
-    pheatmap(scaled_data,
-             labels_row = gene_labels,
-             labels_col = colnames(cluster_means),
-             main = paste("Expression Heatmap:", length(genes_present), "Genes"),
-             angle_col = 45,
-             fontsize_row = 10,
-             cluster_cols = FALSE,
-             treeheight_row = 0,
-             draw = TRUE)
-  }, error = function(e) {
-    # If pheatmap fails, return a ggplot error message
-    ggplot() + 
-      annotate("text", x = 0.5, y = 0.5, 
-               label = paste("Error creating heatmap:", e$message)) + 
-      theme_void()
-  })
-}
-
-#' @title Create General Heatmap
-#' @description Creates a heatmap of cluster-specific marker genes.
-#' @param seurat_obj Seurat object containing the data
-#' @param genes Vector of genes to include in the heatmap
-#' @param cluster_labels Named vector of cluster labels
-#' @param active_clusters Vector of active cluster IDs
-#' @param cluster_order Optional vector specifying the order of clusters
-#' @return A pheatmap object showing cluster-specific gene expression
-#' @keywords internal
-createGeneralHeatmap <- function(seurat_obj, genes, cluster_labels = NULL, active_clusters = NULL, cluster_order = NULL) {
-  # Safety check for empty gene list
-  if (length(genes) == 0) {
-    # Create an empty plot with a message
-    return(ggplot() + 
-             annotate("text", x = 0.5, y = 0.5, label = "No genes to display") + 
-             theme_void())
-  }
-  
-  # Ensure cluster_labels is not a function (reactive value)
-  if (is.function(cluster_labels)) {
-    tryCatch({
-      cluster_labels <- cluster_labels()
-    }, error = function(e) {
-      cluster_labels <- NULL
-    })
-  }
-  
-  # Create default cluster labels if not provided
-  if (is.null(cluster_labels)) {
-    unique_clusters <- sort(unique(seurat_obj$seurat_clusters))
-    cluster_labels <- setNames(
-      paste("Cluster", unique_clusters),
-      as.character(unique_clusters)
-    )
-  }
-  
-  # Subset to active clusters if provided
-  if (!is.null(active_clusters) && length(active_clusters) > 0) {
-    existing_active_clusters <- intersect(active_clusters, unique(seurat_obj$seurat_clusters))
-    
-    if (length(existing_active_clusters) == 0) {
-      return(ggplot() + 
-               annotate("text", x = 0.5, y = 0.5, 
-                        label = "None of the active clusters exist in the current dataset") + 
-               theme_void())
-    }
-    
-    # Only use active clusters that actually exist
-    active_cells <- seurat_obj$seurat_clusters %in% existing_active_clusters
-    seurat_obj <- subset(seurat_obj, cells = colnames(seurat_obj)[active_cells])
-  }
-  
-  # Ensure all genes are in the Seurat object
-  genes_present <- intersect(genes, rownames(seurat_obj))
-  if (length(genes_present) == 0) {
-    return(ggplot() + 
-             annotate("text", x = 0.5, y = 0.5, 
-                      label = "None of the selected genes are present in the dataset") + 
-             theme_void())
-  }
-  
-  # Get expression data for selected genes
-  expr_data <- GetAssayData(seurat_obj, slot = "data")[genes_present, , drop = FALSE]
-  
-  # Calculate cluster means
-  clusters <- seurat_obj$seurat_clusters
-  unique_clusters <- sort(unique(clusters))
-  
-  # Check if we have clusters
-  if (length(unique_clusters) == 0) {
-    return(ggplot() + 
-             annotate("text", x = 0.5, y = 0.5, 
-                      label = "No clusters to display") + 
-             theme_void())
-  }
-  
-  # Order clusters if provided
-  if (!is.null(cluster_order) && length(cluster_order) > 0) {
-    # Convert to numeric
-    ordered_clusters <- as.numeric(cluster_order)
-    # Only use clusters that exist in our data
-    ordered_clusters <- intersect(ordered_clusters, unique_clusters)
-    # If no matching clusters (completely new set), use the default ordering
-    if (length(ordered_clusters) == 0) {
-      ordered_clusters <- unique_clusters
-    } else {
-      # Add any clusters that weren't included in the order
-      ordered_clusters <- c(ordered_clusters, setdiff(unique_clusters, ordered_clusters))
-    }
-    
-    # Replace unique_clusters with ordered version
-    unique_clusters <- ordered_clusters
-  }
-  
-  cluster_means <- sapply(unique_clusters, function(clust) {
-    cluster_cells <- which(clusters == clust)
-    if (length(cluster_cells) > 0) {
-      rowMeans(expr_data[, cluster_cells, drop = FALSE])
-    } else {
-      rep(NA, nrow(expr_data))
-    }
-  })
-  
-  # Set column names using cluster labels
-  col_names <- sapply(unique_clusters, function(x) {
-    cluster_key <- as.character(x)
-    if (cluster_key %in% names(cluster_labels)) {
-      cluster_labels[[cluster_key]]
-    } else {
-      paste("Cluster", x)
-    }
-  })
-  colnames(cluster_means) <- col_names
-  
-  # Scale data
-  if (is.matrix(cluster_means) && nrow(cluster_means) > 1 && ncol(cluster_means) > 1) {
-    # Only scale if we have enough data
-    scaled_data <- t(scale(t(cluster_means)))
-  } else {
-    # Otherwise just use the original data
-    scaled_data <- cluster_means
-  }
-  
-  # Get gene labels
-  gene_mapping <- seurat_obj@misc$gene_mapping
-  gene_labels <- if (!is.null(gene_mapping) && all(rownames(scaled_data) %in% names(gene_mapping))) {
-    gene_mapping[rownames(scaled_data)]
-  } else {
-    rownames(scaled_data)
-  }
-  gene_labels[is.na(gene_labels)] <- rownames(scaled_data)[is.na(gene_labels)]
-  
-  # Create heatmap with ordered rows (genes already ordered by cluster)
-  tryCatch({
-    pheatmap(scaled_data,
-             labels_row = gene_labels,
-             labels_col = colnames(cluster_means),
-             main = "Top Cluster-Specific Genes",
-             angle_col = 45,
-             fontsize_row = 8,
-             cluster_cols = FALSE,
-             cluster_rows = FALSE,  # Don't cluster rows to maintain diagonal pattern
-             treeheight_row = 0,
-             draw = TRUE)
-  }, error = function(e) {
-    # If pheatmap fails, return a ggplot error message
-    ggplot() + 
-      annotate("text", x = 0.5, y = 0.5, 
-               label = paste("Error creating heatmap:", e$message)) + 
-      theme_void()
-  })
 }
 
 #' @title Create Boxplot UI
