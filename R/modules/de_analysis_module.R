@@ -145,17 +145,17 @@ deAnalysisServer <- function(id, clustered_seurat, cluster_management, sample_ma
     # Force UI refresh when cluster labels change
     observeEvent(state$cluster_labels, {
       output$analysisUI <- renderUI({
-        setupAnalysisUI(ns, clustered_seurat, cluster_management, state)
+        setupAnalysisUI(ns, clustered_seurat, cluster_management, state, sample_management, condition_management)
       })
     })
     
     # Render Analysis UI
     output$analysisUI <- renderUI({
-      setupAnalysisUI(ns, clustered_seurat, cluster_management, state)
+      setupAnalysisUI(ns, clustered_seurat, cluster_management, state, sample_management, condition_management)
     })
     
     # Setup DE analysis handlers
-    setupAnalysisHandlers(input, output, clustered_seurat, cluster_management, state, session, sample_managment, condition_management)
+    setupAnalysisHandlers(input, output, clustered_seurat, cluster_management, state, session, sample_management, condition_management)
     
     setResults <- function(new_results, analysis_type = NULL, heatmap_data = NULL, general_heatmap_genes = NULL) {
       if (!is.null(new_results)) {
@@ -231,32 +231,15 @@ setupReactiveState <- function() {
 #' @param cluster_management Cluster management module instance
 #' @return UI elements for DE analysis
 #' @keywords internal
-setupAnalysisUI <- function(ns, clustered_seurat, cluster_management, state) {
-  if (is.null(cluster_management)) {
-    return(div(
-      class = "alert alert-warning",
-      "Cluster management not initialized. Please refresh the application."
-    ))
-  }
-  
+setupAnalysisUI <- function(ns, clustered_seurat, cluster_management, state, sample_management = NULL, condition_management = NULL) {
+  # Get cluster choices (existing code)
   active_cluster_ids <- cluster_management$getActiveClusterIds()
-  
-  # Check if we have any active clusters
-  if (is.null(active_cluster_ids) || length(active_cluster_ids) == 0) {
-    return(div(
-      class = "alert alert-warning",
-      "No active clusters selected. Please activate at least one cluster in the Cluster Management section in the sidebar."
-    ))
-  }
-  
-  # Get current labels either from state or directly from cluster_management
   current_labels <- if (!is.null(state$cluster_labels)) {
     state$cluster_labels
   } else {
     cluster_management$getClusterLabels()
   }
   
-  # Create cluster choices for select inputs
   cluster_choices <- setNames(
     active_cluster_ids,
     vapply(active_cluster_ids, function(x) {
@@ -268,8 +251,51 @@ setupAnalysisUI <- function(ns, clustered_seurat, cluster_management, state) {
     }, character(1))
   )
   
-  # Create analysis UI
-  createAnalysisUI(ns, cluster_choices)
+  # Get sample choices
+  sample_choices <- NULL
+  if (!is.null(sample_management)) {
+    active_sample_ids <- sample_management$getActiveSampleIds()
+    if (!is.null(active_sample_ids) && length(active_sample_ids) > 0) {
+      sample_labels <- sample_management$getSampleLabels()
+      
+      sample_choices <- setNames(
+        active_sample_ids,
+        vapply(active_sample_ids, function(x) {
+          if (!is.null(sample_labels) && x %in% names(sample_labels)) {
+            sample_labels[[x]]
+          } else {
+            x  # Use the sample ID as its own label if no custom label
+          }
+        }, character(1))
+      )
+    }
+  }
+  
+  # Get condition choices
+  condition_choices <- NULL
+  condition_column <- NULL
+  if (!is.null(condition_management)) {
+    active_conditions <- condition_management$getActiveConditions()
+    condition_column <- condition_management$getConditionColumn()
+    
+    if (!is.null(active_conditions) && length(active_conditions) > 0 && !is.null(condition_column)) {
+      condition_labels <- condition_management$getConditionLabels()
+      
+      condition_choices <- setNames(
+        active_conditions,
+        vapply(active_conditions, function(x) {
+          if (!is.null(condition_labels) && x %in% names(condition_labels)) {
+            condition_labels[[x]]
+          } else {
+            x  # Use the condition value as its own label if no custom label
+          }
+        }, character(1))
+      )
+    }
+  }
+
+  # Create analysis UI with all choices
+  createDEAnalysisUI(ns, cluster_choices, sample_choices, condition_choices, condition_column)
 }
 
 #' @title Setup Analysis Handlers
@@ -289,17 +315,103 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     state$cluster_labels <- cluster_management$getClusterLabels()
   })
   
+  # Handle Sample comparison
+  observeEvent(input$runDESample, {
+    req(clustered_seurat(), input$targetSample1, input$targetSample2)
+    
+    if (input$targetSample1 == input$targetSample2) {
+      showNotification("Please select different samples for comparison.", type = "warning")
+      return(NULL)
+    }
+    
+    clear_state("sample_comparison")
+    
+    # Run sample comparison analysis
+    runSampleAnalysis(
+      clustered_seurat(), 
+      input$targetSample1, 
+      input$targetSample2, 
+      state,
+      sample_management
+    )
+  })
+  
+  # Handle Condition comparison
+  observeEvent(input$runDECondition, {
+    req(clustered_seurat(), input$targetCondition1, input$targetCondition2, condition_management)
+    
+    if (input$targetCondition1 == input$targetCondition2) {
+      showNotification("Please select different conditions for comparison.", type = "warning")
+      return(NULL)
+    }
+    
+    condition_column <- condition_management$getConditionColumn()
+    if (is.null(condition_column)) {
+      showNotification("No condition column selected.", type = "error")
+      return(NULL)
+    }
+    
+    clear_state("condition_comparison")
+    
+    # Run condition comparison analysis
+    runConditionAnalysis(
+      clustered_seurat(), 
+      input$targetCondition1, 
+      input$targetCondition2, 
+      condition_column,
+      state,
+      condition_management
+    )
+  })
+  
+  observeEvent(input$runSampleHeatmap, {
+    req(clustered_seurat(), input$genesPerSample)
+    
+    state$heatmap_type("general")
+    
+    # Run general heatmap analysis but for samples instead of clusters
+    # You'll need to implement this function
+    runSampleHeatmapAnalysis(
+      clustered_seurat(), 
+      sample_management$getActiveSampleIds(), 
+      input$genesPerSample, 
+      state
+    )
+  })
+  
+  observeEvent(input$runConditionHeatmap, {
+    req(clustered_seurat(), input$genesPerCondition, condition_management)
+    
+    state$heatmap_type("general")
+    
+    # Run general heatmap analysis but for conditions instead of clusters
+    # You'll need to implement this function
+    runConditionHeatmapAnalysis(
+      clustered_seurat(), 
+      condition_management$getActiveConditions(), 
+      condition_management$getConditionColumn(),
+      input$genesPerCondition, 
+      state
+    )
+  })
+  
   # Helper to clear state when starting a new analysis
   clear_state <- function(new_state) {
     state$analysis_state(new_state)
     
+    # List of all DE analysis states
+    de_analysis_states <- c("one_vs_all", "pairwise", "sample_comparison", "condition_comparison")
+    
+    # List of all heatmap states
+    heatmap_states <- c("general_heatmap", "sample_heatmap", "condition_heatmap")
+    
     # Clear visualizations that aren't needed for the new state
-    if (new_state == "one_vs_all" || new_state == "pairwise") {
+    if (new_state %in% de_analysis_states) {
       # Reset general heatmap when switching to DE analysis
       state$general_heatmap_genes(NULL)
       state$general_heatmap_clusters(NULL)
-    } else if (new_state == "general_heatmap") {
-      # Clear specific heatmap data when switching to general
+    } else if (new_state %in% heatmap_states) {
+      # Clear specific heatmap data when switching to general heatmaps
       state$heatmap_data(NULL)
     }
   }
@@ -516,7 +628,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     })
   })
   
-  # General heatmap plot with comprehensive error handling
   general_heatmap_plot <- reactive({
     req(state$general_heatmap_genes())
     req(clustered_seurat())
@@ -543,40 +654,116 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
       )
     }
     
-    # Get active clusters
-    current_active <- tryCatch({
-      if (is.function(active_cluster_list)) {
-        active_cluster_list()
-      } else {
+    # Get active items based on the analysis type
+    active_items <- NULL
+    current_state <- state$analysis_state()
+    
+    if (current_state == "general_heatmap") {
+      # Get active clusters for cluster-based heatmap
+      active_items <- tryCatch({
+        if (is.function(active_cluster_list)) {
+          as.numeric(active_cluster_list())
+        } else {
+          NULL
+        }
+      }, error = function(e) {
         NULL
+      })
+      
+      if (is.null(active_items) || length(active_items) == 0) {
+        return(ggplot() + 
+                 annotate("text", x = 0.5, y = 0.5, 
+                          label = "No active clusters selected") + 
+                 theme_void())
       }
-    }, error = function(e) {
-      NULL
-    })
-    
-    if (is.null(current_active) || length(current_active) == 0) {
-      return(ggplot() + 
-               annotate("text", x = 0.5, y = 0.5, 
-                        label = "No active clusters selected") + 
-               theme_void())
-    }
-    
-    # Call createGeneralHeatmap with robust error handling
-    tryCatch({
-      createGeneralHeatmap(
-        clustered_seurat(),
-        state$general_heatmap_genes(),
-        cluster_labels,
-        as.numeric(current_active),
-        state$general_heatmap_clusters()
-      )
-    }, error = function(e) {
-      # Return a simple error message plot
+      
+      # Call createGeneralHeatmap with robust error handling
+      tryCatch({
+        createGeneralHeatmap(
+          clustered_seurat(),
+          state$general_heatmap_genes(),
+          cluster_labels,
+          as.numeric(active_items),
+          state$general_heatmap_clusters()
+        )
+      }, error = function(e) {
+        # Return a simple error message plot
+        ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, 
+                   label = paste("Error creating general heatmap:", e$message)) + 
+          theme_void()
+      })
+    } else if (current_state == "sample_heatmap") {
+      # For sample heatmap, use the sample labels from sample_management if available
+      sample_labels <- NULL
+      if (!is.null(sample_management) && is.function(sample_management$getSampleLabels)) {
+        sample_labels <- sample_management$getSampleLabels()
+      }
+      
+      # Call createSampleHeatmap with sample labels
+      tryCatch({
+        # Using the createGeneralHeatmap function but with "sample" as the identity column
+        seurat_obj <- clustered_seurat()
+        Idents(seurat_obj) <- "sample"
+        createGeneralHeatmap(
+          seurat_obj,
+          state$general_heatmap_genes(),
+          sample_labels,
+          NULL,  # No need to filter by clusters
+          NULL   # No need for cluster ordering
+        )
+      }, error = function(e) {
+        ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, 
+                   label = paste("Error creating sample heatmap:", e$message)) + 
+          theme_void()
+      })
+    } else if (current_state == "condition_heatmap") {
+      # For condition heatmap, get condition column and labels
+      condition_column <- NULL
+      condition_labels <- NULL
+      
+      if (!is.null(condition_management)) {
+        if (is.function(condition_management$getConditionColumn)) {
+          condition_column <- condition_management$getConditionColumn()
+        }
+        if (is.function(condition_management$getConditionLabels)) {
+          condition_labels <- condition_management$getConditionLabels()
+        }
+      }
+      
+      # Skip if no condition column is set
+      if (is.null(condition_column)) {
+        return(ggplot() + 
+                 annotate("text", x = 0.5, y = 0.5, 
+                          label = "No condition column selected") + 
+                 theme_void())
+      }
+      
+      # Call createConditionHeatmap with condition labels
+      tryCatch({
+        seurat_obj <- clustered_seurat()
+        Idents(seurat_obj) <- condition_column
+        createGeneralHeatmap(
+          seurat_obj,
+          state$general_heatmap_genes(),
+          condition_labels,
+          NULL,  # No need to filter by clusters
+          NULL   # No need for cluster ordering
+        )
+      }, error = function(e) {
+        ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, 
+                   label = paste("Error creating condition heatmap:", e$message)) + 
+          theme_void()
+      })
+    } else {
+      # Default error message if unknown state
       ggplot() + 
         annotate("text", x = 0.5, y = 0.5, 
-                 label = paste("Error creating general heatmap:", e$message)) + 
+                 label = "Unknown heatmap type requested") + 
         theme_void()
-    })
+    }
   })
   
   # Render heatmap plots
@@ -1021,7 +1208,10 @@ renderDEResultsUI <- function(ns, state, clustered_seurat, condition_column = NU
     return(NULL)
   }
   
-  if (current_state %in% c("one_vs_all", "pairwise")) {
+  # List of all DE analysis states that show results in the DE Results UI
+  de_results_states <- c("one_vs_all", "pairwise", "sample_comparison", "condition_comparison")
+  
+  if (current_state %in% de_results_states) {
     current_de_genes <- state$de_genes()
     
     if (is.null(current_de_genes) || nrow(current_de_genes) == 0) {
@@ -1035,8 +1225,16 @@ renderDEResultsUI <- function(ns, state, clustered_seurat, condition_column = NU
       !is.null(state$heatmap_type()) && 
       state$heatmap_type() == "specific"
     
+    # Create a more descriptive title based on the analysis type
+    title_prefix <- switch(current_state,
+                           "one_vs_all" = "Cluster",
+                           "pairwise" = "Cluster",
+                           "sample_comparison" = "Sample",
+                           "condition_comparison" = "Condition",
+                           "Differential")
+    
     tagList(
-      h3("Differential Expression Results"),
+      h3(paste(title_prefix, "Expression Results")),
       div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
           h4(style = "margin: 0;", "Volcano Plot"),
           downloadButton(ns("downloadVolcanoPlot"), "Save Plot", 
@@ -1077,6 +1275,15 @@ renderDEResultsUI <- function(ns, state, clustered_seurat, condition_column = NU
       
       createBoxplotUI(ns, current_de_genes, clustered_seurat, state$active_clusters, state$cluster_labels, condition_column)
     )
+  } else if (current_state %in% c("general_heatmap", "sample_heatmap", "condition_heatmap")) {
+    # For heatmap states, return NULL since that UI is handled by generalHeatmapUI
+    return(NULL)
+  } else {
+    # For unknown states, return a warning
+    return(div(
+      class = "alert alert-warning",
+      paste("Unknown analysis state:", current_state)
+    ))
   }
 }
 
@@ -1091,30 +1298,52 @@ renderGeneralHeatmapUI <- function(ns, state, active_cluster_list) {
   current_state <- state$analysis_state()
   current_genes <- state$general_heatmap_genes()
   
-  if (is.null(current_state) || current_state != "general_heatmap") {
+  # Update this condition to include all heatmap states
+  if (is.null(current_state) || 
+      !(current_state %in% c("general_heatmap", "sample_heatmap", "condition_heatmap"))) {
     return(NULL)
   }
   
   if (is.null(current_genes) || length(current_genes) == 0) {
     return(div(
       class = "alert alert-info",
-      "No genes found for heatmap. Try adjusting parameters or selecting different clusters."
+      "No genes found for heatmap. Try adjusting parameters or selecting different groups."
     ))
   }
   
-  current_active <- active_cluster_list()
-  has_active_clusters <- length(current_active) > 0
+  # Determine which active items to check based on the analysis state
+  has_active_items <- FALSE
+  analysis_type <- ""
   
-  if (!has_active_clusters) {
+  if (current_state == "general_heatmap") {
+    current_active <- active_cluster_list()
+    has_active_items <- length(current_active) > 0
+    analysis_type <- "clusters"
+  } else if (current_state == "sample_heatmap") {
+    has_active_items <- TRUE  # We already filtered for active samples during the analysis
+    analysis_type <- "samples"
+  } else if (current_state == "condition_heatmap") {
+    has_active_items <- TRUE  # We already filtered for active conditions during the analysis
+    analysis_type <- "conditions"
+  }
+  
+  if (!has_active_items) {
     return(div(
       class = "alert alert-warning",
-      "No active clusters selected for heatmap visualization."
+      paste0("No active ", analysis_type, " selected for heatmap visualization.")
     ))
   }
+  
+  # Create a title based on the analysis type
+  heatmap_title <- switch(current_state,
+                          "general_heatmap" = "General Cluster Heatmap",
+                          "sample_heatmap" = "Sample Comparison Heatmap",
+                          "condition_heatmap" = "Condition Comparison Heatmap",
+                          "General Heatmap")
   
   tagList(
     div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
-        h3(style = "margin: 0;", "General Cluster Heatmap"),
+        h3(style = "margin: 0;", heatmap_title),
         downloadButton(ns("downloadGeneralHeatmapPlot"), "Save Plot", 
                        class = "btn-sm btn-success")
     ),
@@ -1180,44 +1409,96 @@ setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active
   # General heatmap download
   output$downloadGeneralHeatmapPlot <- downloadHandler(
     filename = function() {
-      paste("general_heatmap_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png", sep = "")
+      current_state <- state$analysis_state()
+      prefix <- switch(current_state,
+                       "general_heatmap" = "cluster",
+                       "sample_heatmap" = "sample",
+                       "condition_heatmap" = "condition",
+                       "general")
+      paste0(prefix, "_heatmap_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".png")
     },
     content = function(file) {
       # Create high-resolution PNG device
       png(file, width = 3600, height = 4200, res = 300)
       
-      # Generate the heatmap directly
-      current_labels <- NULL
-      tryCatch({
-        if (!is.null(state$cluster_labels)) {
-          if (is.function(state$cluster_labels)) {
-            current_labels <- state$cluster_labels()
-          } else {
-            current_labels <- state$cluster_labels
+      # Generate the heatmap based on analysis type
+      current_state <- state$analysis_state()
+      
+      if (current_state == "general_heatmap") {
+        # Cluster-based heatmap (existing code)
+        current_labels <- NULL
+        tryCatch({
+          if (!is.null(state$cluster_labels)) {
+            if (is.function(state$cluster_labels)) {
+              current_labels <- state$cluster_labels()
+            } else {
+              current_labels <- state$cluster_labels
+            }
+          }
+        }, error = function(e) {
+          # Continue with null if error
+        })
+        
+        if (is.null(current_labels)) {
+          unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
+          current_labels <- setNames(
+            paste("Cluster", unique_clusters),
+            as.character(unique_clusters)
+          )
+        }
+        
+        current_active <- active_cluster_list()
+        active_clusters_num <- as.numeric(current_active)
+        ordered_genes <- state$general_heatmap_genes()
+        
+        # Create the heatmap with ordered genes
+        createGeneralHeatmap(clustered_seurat(), 
+                             ordered_genes, 
+                             current_labels, 
+                             active_clusters_num,
+                             cluster_order = state$general_heatmap_clusters())
+      } else if (current_state == "sample_heatmap") {
+        # Sample-based heatmap
+        sample_labels <- NULL
+        if (!is.null(sample_management) && is.function(sample_management$getSampleLabels)) {
+          sample_labels <- sample_management$getSampleLabels()
+        }
+        
+        seurat_obj <- clustered_seurat()
+        Idents(seurat_obj) <- "sample"
+        createGeneralHeatmap(
+          seurat_obj,
+          state$general_heatmap_genes(),
+          sample_labels,
+          NULL,
+          NULL
+        )
+      } else if (current_state == "condition_heatmap") {
+        # Condition-based heatmap
+        condition_column <- NULL
+        condition_labels <- NULL
+        
+        if (!is.null(condition_management)) {
+          if (is.function(condition_management$getConditionColumn)) {
+            condition_column <- condition_management$getConditionColumn()
+          }
+          if (is.function(condition_management$getConditionLabels)) {
+            condition_labels <- condition_management$getConditionLabels()
           }
         }
-      }, error = function(e) {
-        # Continue with null if error
-      })
-      
-      if (is.null(current_labels)) {
-        unique_clusters <- sort(unique(clustered_seurat()$seurat_clusters))
-        current_labels <- setNames(
-          paste("Cluster", unique_clusters),
-          as.character(unique_clusters)
-        )
+        
+        seurat_obj <- clustered_seurat()
+        if (!is.null(condition_column)) {
+          Idents(seurat_obj) <- condition_column
+          createGeneralHeatmap(
+            seurat_obj,
+            state$general_heatmap_genes(),
+            condition_labels,
+            NULL,
+            NULL
+          )
+        }
       }
-      
-      current_active <- active_cluster_list()
-      active_clusters_num <- as.numeric(current_active)
-      ordered_genes <- state$general_heatmap_genes()
-      
-      # Create the heatmap with ordered genes
-      createGeneralHeatmap(clustered_seurat(), 
-                           ordered_genes, 
-                           current_labels, 
-                           active_clusters_num,
-                           cluster_order = state$general_heatmap_clusters())
       
       # Close the device to save the file
       dev.off()
@@ -1227,73 +1508,227 @@ setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active
 
 # Additional helper functions for DE analysis UI components
 
-#' @title Create Analysis UI
+#' @title Create DE Analysis UI
 #' @description Creates the main UI elements for differential expression analysis.
 #' @param ns Namespace function
 #' @param cluster_choices Named vector of cluster choices for UI elements
+#' @param sample_choices Named vector of sample choices (optional)
+#' @param condition_choices Named vector of condition choices (optional)
+#' @param condition_column Name of the condition column (optional)
 #' @return UI elements for DE analysis
 #' @keywords internal
-createAnalysisUI <- function(ns, cluster_choices) {
-  # Check if we have enough clusters for analysis
+createDEAnalysisUI <- function(ns, cluster_choices, sample_choices = NULL, condition_choices = NULL, condition_column = NULL) {
+  # Check if we have enough data for different types of analysis
   has_clusters <- length(cluster_choices) > 0
   has_multiple_clusters <- length(cluster_choices) > 1
+  has_samples <- !is.null(sample_choices) && length(sample_choices) > 0
+  has_multiple_samples <- has_samples && length(sample_choices) > 1
+  has_conditions <- !is.null(condition_choices) && length(condition_choices) > 0
+  has_multiple_conditions <- has_conditions && length(condition_choices) > 1
+  
+  # Create analysis type choices based on what's available
+  analysis_choices <- c("Cluster" = "cluster")
+  if (has_samples) {
+    analysis_choices <- c(analysis_choices, "Sample" = "sample")
+  }
+  if (has_conditions) {
+    analysis_choices <- c(analysis_choices, "Condition" = "condition")
+  }
+  
+  # Analysis mode selector UI
+  analysis_selector <- wellPanel(
+    fluidRow(
+      column(12,
+             selectInput(ns("analysisMode"), 
+                         "Select analysis type:",
+                         choices = analysis_choices,
+                         selected = "cluster")
+      )
+    )
+  )
+  
+  # The cluster-based analysis UI
+  cluster_ui <- tagList(
+    fluidRow(
+      column(4,
+             wellPanel(
+               h4("One vs All Analysis"),
+               selectInput(ns("targetClusterAll"), 
+                           "Select cluster to compare against all others:", 
+                           choices = cluster_choices,
+                           selected = if (length(cluster_choices) > 0) cluster_choices[1] else NULL),
+               actionButton(ns("runDEAll"), "Run One vs All DE", 
+                            class = "btn-primary",
+                            disabled = !has_clusters)
+             )
+      ),
+      column(4,
+             wellPanel(
+               h4("One vs One Analysis"),
+               selectInput(ns("targetCluster1"), 
+                           "Select first cluster:", 
+                           choices = cluster_choices,
+                           selected = if (length(cluster_choices) > 0) cluster_choices[1] else NULL),
+               selectInput(ns("targetCluster2"), 
+                           "Select second cluster:", 
+                           choices = cluster_choices,
+                           selected = if (length(cluster_choices) > 1) cluster_choices[2] else cluster_choices[1]),
+               actionButton(ns("runDEPair"), "Run Pairwise DE", 
+                            class = "btn-primary",
+                            disabled = !has_multiple_clusters)
+             )
+      ),
+      column(4,
+             wellPanel(
+               h4("General Cluster Map"),
+               numericInput(ns("genesPerCluster"),
+                            "Top genes per cluster:",
+                            value = 5,
+                            min = 1,
+                            max = 50),
+               actionButton(ns("runGeneralHeatmap"), "Generate General Heatmap", 
+                            class = "btn-primary",
+                            disabled = !has_clusters)
+             )
+      )
+    )
+  )
+  
+  # The sample-based analysis UI
+  sample_ui <- tagList(
+    fluidRow(
+      column(4,
+             wellPanel(
+               h4("Sample Comparison"),
+               selectInput(ns("targetSample1"), 
+                           "Select first sample:", 
+                           choices = sample_choices,
+                           selected = if (length(sample_choices) > 0) sample_choices[1] else NULL),
+               selectInput(ns("targetSample2"), 
+                           "Select second sample:", 
+                           choices = sample_choices,
+                           selected = if (length(sample_choices) > 1) sample_choices[2] else sample_choices[1]),
+               actionButton(ns("runDESample"), "Run Sample Comparison", 
+                            class = "btn-primary",
+                            disabled = !has_multiple_samples)
+             )
+      ),
+      column(4,
+             wellPanel(
+               h4("General Sample Map"),
+               numericInput(ns("genesPerSample"),
+                            "Top genes per sample:",
+                            value = 5,
+                            min = 1,
+                            max = 50),
+               actionButton(ns("runSampleHeatmap"), "Generate Sample Heatmap", 
+                            class = "btn-primary",
+                            disabled = !has_samples)
+             )
+      ),
+      column(4,
+             wellPanel(
+               h4("Sample Analysis Information"),
+               p("Sample-based DE analysis compares gene expression between different samples, regardless of cell clustering."),
+               p("Use this to identify differences between experimental groups or treatments across the entire dataset.")
+             )
+      )
+    )
+  )
+  
+  # The condition-based analysis UI
+  condition_ui <- tagList(
+    fluidRow(
+      column(4,
+             wellPanel(
+               h4("Condition Comparison"),
+               p(paste("Using condition column:", ifelse(!is.null(condition_column), condition_column, "None selected"))),
+               selectInput(ns("targetCondition1"), 
+                           "Select first condition:", 
+                           choices = condition_choices,
+                           selected = if (length(condition_choices) > 0) condition_choices[1] else NULL),
+               selectInput(ns("targetCondition2"), 
+                           "Select second condition:", 
+                           choices = condition_choices,
+                           selected = if (length(condition_choices) > 1) condition_choices[2] else condition_choices[1]),
+               actionButton(ns("runDECondition"), "Run Condition Comparison", 
+                            class = "btn-primary",
+                            disabled = !has_multiple_conditions)
+             )
+      ),
+      column(4,
+             wellPanel(
+               h4("General Condition Map"),
+               numericInput(ns("genesPerCondition"),
+                            "Top genes per condition:",
+                            value = 5,
+                            min = 1,
+                            max = 50),
+               actionButton(ns("runConditionHeatmap"), "Generate Condition Heatmap", 
+                            class = "btn-primary",
+                            disabled = !has_conditions)
+             )
+      ),
+      column(4,
+             wellPanel(
+               h4("Condition Analysis Information"),
+               p(paste("Using condition column:", ifelse(!is.null(condition_column), condition_column, "None selected"))),
+               p("Condition-based DE analysis compares gene expression between different experimental conditions or metadata groups."),
+               p("Use this to identify genes that respond to treatments or biological factors across the entire dataset.")
+             )
+      )
+    )
+  )
+  
+  # Main content - the UI changes based on the selected analysis mode
+  # This will be controlled by JavaScript
+  main_ui <- tagList(
+    tags$div(id = ns("cluster_analysis_ui"), cluster_ui),
+    tags$div(id = ns("sample_analysis_ui"), style = "display: none;", sample_ui),
+    tags$div(id = ns("condition_analysis_ui"), style = "display: none;", condition_ui)
+  )
+  
+  # Add JavaScript to switch between UIs based on dropdown selection
+  js_code <- paste0("
+    $(document).ready(function() {
+      $('#", ns("analysisMode"), "').on('change', function() {
+        var mode = $(this).val();
+        if (mode === 'cluster') {
+          $('#", ns("cluster_analysis_ui"), "').show();
+          $('#", ns("sample_analysis_ui"), "').hide();
+          $('#", ns("condition_analysis_ui"), "').hide();
+        } else if (mode === 'sample') {
+          $('#", ns("cluster_analysis_ui"), "').hide();
+          $('#", ns("sample_analysis_ui"), "').show();
+          $('#", ns("condition_analysis_ui"), "').hide();
+        } else if (mode === 'condition') {
+          $('#", ns("cluster_analysis_ui"), "').hide();
+          $('#", ns("sample_analysis_ui"), "').hide();
+          $('#", ns("condition_analysis_ui"), "').show();
+        }
+      });
+    });
+  ")
   
   tagList(
-    if (!has_clusters) {
-      # No active clusters message
+    tags$script(HTML(js_code)),
+    if (!has_clusters && !has_samples && !has_conditions) {
+      # No data available message
       div(
         class = "alert alert-warning",
         icon("exclamation-triangle"),
-        "No active clusters available. Please activate at least one cluster in the Cluster Management section above."
+        "No active clusters, samples, or conditions available. Please activate at least one item in the management sections."
       )
     } else {
-      # Main analysis UI when clusters are available
-      fluidRow(
-        column(4,
-               wellPanel(
-                 h4("One vs All Analysis"),
-                 selectInput(ns("targetClusterAll"), 
-                             "Select cluster to compare against all others:", 
-                             choices = cluster_choices,
-                             selected = if (length(cluster_choices) > 0) cluster_choices[1] else NULL),
-                 actionButton(ns("runDEAll"), "Run One vs All DE", 
-                              class = "btn-primary",
-                              disabled = !has_clusters)
-               )
-        ),
-        column(4,
-               wellPanel(
-                 h4("One vs One Analysis"),
-                 selectInput(ns("targetCluster1"), 
-                             "Select first cluster:", 
-                             choices = cluster_choices,
-                             selected = if (length(cluster_choices) > 0) cluster_choices[1] else NULL),
-                 selectInput(ns("targetCluster2"), 
-                             "Select second cluster:", 
-                             choices = cluster_choices,
-                             selected = if (length(cluster_choices) > 1) cluster_choices[2] else cluster_choices[1]),
-                 actionButton(ns("runDEPair"), "Run Pairwise DE", 
-                              class = "btn-primary",
-                              disabled = !has_multiple_clusters)
-               )
-        ),
-        column(4,
-               wellPanel(
-                 h4("General Cluster Map"),
-                 numericInput(ns("genesPerCluster"),
-                              "Top genes per cluster:",
-                              value = 5,
-                              min = 1,
-                              max = 50),
-                 actionButton(ns("runGeneralHeatmap"), "Generate General Heatmap", 
-                              class = "btn-primary",
-                              disabled = !has_clusters)
-               )
-        )
+      tagList(
+        # Analysis type selector
+        analysis_selector,
+        # Main content that changes based on selection
+        main_ui
       )
     },
     
-    # Results container for One vs All and One vs One
+    # Results container for all analysis types
     div(id = ns("deResults"),
         uiOutput(ns("deResultsUI"))
     ),
@@ -1816,5 +2251,320 @@ setupGeneSearch <- function(input, output, session, clustered_seurat) {
     # Update the selectize input
     match_choices <- setNames(all_matches, match_labels)
     updateSelectizeInput(session, "boxplot_gene", choices = match_choices, server = TRUE)
+  })
+}
+
+#' @title Run Sample DE Analysis
+#' @description Performs differential expression analysis comparing two samples.
+#' @param seurat_obj Seurat object containing the data
+#' @param sample1 First sample for comparison
+#' @param sample2 Second sample for comparison
+#' @param state Reactive state list
+#' @param sample_management Sample management module instance
+#' @keywords internal
+runSampleAnalysis <- function(seurat_obj, sample1, sample2, state, sample_management) {
+  withProgress(message = 'Computing sample comparison...', {
+    # Create a temporary factor for comparison
+    sample_cells1 <- seurat_obj$sample == sample1
+    sample_cells2 <- seurat_obj$sample == sample2
+    cells_to_keep <- sample_cells1 | sample_cells2
+    
+    # Skip if no cells match
+    if (sum(cells_to_keep) == 0) {
+      showNotification("No cells found for the selected samples.", type = "error")
+      return(NULL)
+    }
+    
+    # Subset data
+    seurat_subset <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+    
+    # Create a temporary grouping factor for FindMarkers
+    seurat_subset$temp_sample_group <- ifelse(seurat_subset$sample == sample1, "sample1", "sample2")
+    Idents(seurat_subset) <- "temp_sample_group"
+    
+    # Run DE analysis
+    de_results <- FindMarkers(
+      seurat_subset,
+      ident.1 = "sample1",
+      ident.2 = "sample2",
+      min.pct = 0.25,
+      logfc.threshold = 0
+    )
+    
+    # Check results
+    if (is.null(de_results) || nrow(de_results) == 0) {
+      showNotification("No differential expression results found.", type = "warning")
+      return(NULL)
+    }
+    
+    # Add gene names
+    de_results <- addGeneNames(de_results, seurat_obj)
+    
+    # Get sample labels
+    sample_labels <- sample_management$getSampleLabels()
+    
+    sample1_label <- if (!is.null(sample_labels) && sample1 %in% names(sample_labels)) {
+      sample_labels[[sample1]]
+    } else {
+      sample1
+    }
+    
+    sample2_label <- if (!is.null(sample_labels) && sample2 %in% names(sample_labels)) {
+      sample_labels[[sample2]]
+    } else {
+      sample2
+    }
+    
+    # Add comparison label
+    de_results$comparison <- paste(sample1_label, "vs", sample2_label)
+    
+    # Update state
+    state$de_genes(de_results)
+    state$de_status("completed")
+    state$heatmap_data(NULL)
+    state$heatmap_type(NULL)
+  })
+}
+
+#' @title Run Condition DE Analysis
+#' @description Performs differential expression analysis comparing two conditions.
+#' @param seurat_obj Seurat object containing the data
+#' @param condition1 First condition for comparison
+#' @param condition2 Second condition for comparison
+#' @param condition_column Column name containing condition information
+#' @param state Reactive state list
+#' @param condition_management Condition management module instance
+#' @keywords internal
+runConditionAnalysis <- function(seurat_obj, condition1, condition2, condition_column, state, condition_management) {
+  withProgress(message = 'Computing condition comparison...', {
+    # Create a temporary factor for comparison
+    condition_cells1 <- seurat_obj@meta.data[[condition_column]] == condition1
+    condition_cells2 <- seurat_obj@meta.data[[condition_column]] == condition2
+    cells_to_keep <- condition_cells1 | condition_cells2
+    
+    # Skip if no cells match
+    if (sum(cells_to_keep) == 0) {
+      showNotification("No cells found for the selected conditions.", type = "error")
+      return(NULL)
+    }
+    
+    # Subset data
+    seurat_subset <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
+    
+    # Create a temporary grouping factor for FindMarkers
+    seurat_subset$temp_condition_group <- ifelse(
+      seurat_subset@meta.data[[condition_column]] == condition1, 
+      "condition1", 
+      "condition2"
+    )
+    Idents(seurat_subset) <- "temp_condition_group"
+    
+    # Run DE analysis
+    de_results <- FindMarkers(
+      seurat_subset,
+      ident.1 = "condition1",
+      ident.2 = "condition2",
+      min.pct = 0.25,
+      logfc.threshold = 0
+    )
+    
+    # Check results
+    if (is.null(de_results) || nrow(de_results) == 0) {
+      showNotification("No differential expression results found.", type = "warning")
+      return(NULL)
+    }
+    
+    # Add gene names
+    de_results <- addGeneNames(de_results, seurat_obj)
+    
+    # Get condition labels
+    condition_labels <- condition_management$getConditionLabels()
+    
+    condition1_label <- if (!is.null(condition_labels) && condition1 %in% names(condition_labels)) {
+      condition_labels[[condition1]]
+    } else {
+      condition1
+    }
+    
+    condition2_label <- if (!is.null(condition_labels) && condition2 %in% names(condition_labels)) {
+      condition_labels[[condition2]]
+    } else {
+      condition2
+    }
+    
+    # Add comparison label
+    de_results$comparison <- paste(condition1_label, "vs", condition2_label)
+    
+    # Update state
+    state$de_genes(de_results)
+    state$de_status("completed")
+    state$heatmap_data(NULL)
+    state$heatmap_type(NULL)
+  })
+}
+
+#' @title Run Sample Heatmap Analysis
+#' @description Generates a heatmap of top marker genes for each sample.
+#' @param seurat_obj Seurat object containing the data
+#' @param active_samples List of active samples to include in analysis
+#' @param genes_per_sample Number of top genes to include per sample
+#' @param state Reactive state list
+#' @keywords internal
+runSampleHeatmapAnalysis <- function(seurat_obj, active_samples, genes_per_sample, state) {
+  if (length(active_samples) == 0) {
+    showNotification("No active samples selected.", type = "warning")
+    return(NULL)
+  }
+  
+  withProgress(message = "Computing sample heatmap...", value = 0, detail = "Preparing analysis", {
+    tryCatch({
+      # Set the identity to 'sample'
+      Idents(seurat_obj) <- "sample"
+      
+      # Collect DE genes for each active sample independently
+      all_de_results <- list()
+      
+      for (i in seq_along(active_samples)) {
+        sample <- active_samples[i]
+        
+        incProgress(1 / length(active_samples), 
+                    detail = paste("Finding markers for sample", sample))
+        
+        # Find markers for this sample vs all other active samples
+        res <- FindMarkers(
+          seurat_obj,
+          ident.1 = sample,
+          ident.2 = setdiff(active_samples, sample),
+          min.pct = 0.25,
+          logfc.threshold = 0.25
+        )
+        
+        # Add gene names
+        res <- addGeneNames(res, seurat_obj)
+        
+        # Get top N genes for this sample
+        if (nrow(res) > 0) {
+          # Sort by p-value and fold change
+          res <- res[order(res$p_val_adj, -abs(res$avg_log2FC)), ]
+          top_sample_genes <- rownames(res)[1:min(genes_per_sample, nrow(res))]
+          all_de_results[[sample]] <- top_sample_genes
+        }
+      }
+      
+      incProgress(0.8, detail = "Combining results")
+      
+      # Combine all unique genes
+      unique_genes <- unique(unlist(all_de_results))
+      
+      if (is.null(unique_genes) || length(unique_genes) == 0) {
+        showNotification("No significant genes found for selected samples.", type = "warning")
+        return(NULL)
+      }
+      
+      # Create gene order by sample
+      gene_order <- c()
+      for (sample in names(all_de_results)) {
+        gene_order <- c(gene_order, all_de_results[[sample]])
+      }
+      # Remove duplicates but keep order
+      gene_order <- unique(gene_order)
+      
+      incProgress(0.9, detail = "Building heatmap")
+      
+      # Store genes for heatmap and update state
+      state$general_heatmap_genes(gene_order)
+      state$heatmap_type("general")
+      state$analysis_state("sample_heatmap")
+      
+      incProgress(1.0, detail = "Completed")
+    }, error = function(e) {
+      showNotification(paste("Error computing sample heatmap:", e$message), type = "error")
+    })
+  })
+}
+
+#' @title Run Condition Heatmap Analysis
+#' @description Generates a heatmap of top marker genes for each condition value.
+#' @param seurat_obj Seurat object containing the data
+#' @param active_conditions List of active conditions to include in analysis
+#' @param condition_column Name of the metadata column containing condition values
+#' @param genes_per_condition Number of top genes to include per condition
+#' @param state Reactive state list
+#' @keywords internal
+runConditionHeatmapAnalysis <- function(seurat_obj, active_conditions, condition_column, genes_per_condition, state) {
+  if (length(active_conditions) == 0) {
+    showNotification("No active conditions selected.", type = "warning")
+    return(NULL)
+  }
+  
+  if (is.null(condition_column)) {
+    showNotification("No condition column selected.", type = "error")
+    return(NULL)
+  }
+  
+  withProgress(message = "Computing condition heatmap...", value = 0, detail = "Preparing analysis", {
+    tryCatch({
+      # Set the identity to the condition column
+      Idents(seurat_obj) <- condition_column
+      
+      # Collect DE genes for each active condition independently
+      all_de_results <- list()
+      
+      for (i in seq_along(active_conditions)) {
+        condition <- active_conditions[i]
+        
+        incProgress(1 / length(active_conditions), 
+                    detail = paste("Finding markers for condition", condition))
+        
+        # Find markers for this condition vs all other active conditions
+        res <- FindMarkers(
+          seurat_obj,
+          ident.1 = condition,
+          ident.2 = setdiff(active_conditions, condition),
+          min.pct = 0.25,
+          logfc.threshold = 0.25
+        )
+        
+        # Add gene names
+        res <- addGeneNames(res, seurat_obj)
+        
+        # Get top N genes for this condition
+        if (nrow(res) > 0) {
+          # Sort by p-value and fold change
+          res <- res[order(res$p_val_adj, -abs(res$avg_log2FC)), ]
+          top_condition_genes <- rownames(res)[1:min(genes_per_condition, nrow(res))]
+          all_de_results[[condition]] <- top_condition_genes
+        }
+      }
+      
+      incProgress(0.8, detail = "Combining results")
+      
+      # Combine all unique genes
+      unique_genes <- unique(unlist(all_de_results))
+      
+      if (is.null(unique_genes) || length(unique_genes) == 0) {
+        showNotification("No significant genes found for selected conditions.", type = "warning")
+        return(NULL)
+      }
+      
+      # Create gene order by condition
+      gene_order <- c()
+      for (condition in names(all_de_results)) {
+        gene_order <- c(gene_order, all_de_results[[condition]])
+      }
+      # Remove duplicates but keep order
+      gene_order <- unique(gene_order)
+      
+      incProgress(0.9, detail = "Building heatmap")
+      
+      # Store genes for heatmap and update state
+      state$general_heatmap_genes(gene_order)
+      state$heatmap_type("general")
+      state$analysis_state("condition_heatmap")
+      
+      incProgress(1.0, detail = "Completed")
+    }, error = function(e) {
+      showNotification(paste("Error computing condition heatmap:", e$message), type = "error")
+    })
   })
 }
