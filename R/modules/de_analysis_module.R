@@ -315,24 +315,49 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     state$cluster_labels <- cluster_management$getClusterLabels()
   })
   
+  # Handle unified Cluster comparison
+  observeEvent(input$runDECluster, {
+    req(clustered_seurat(), input$targetCluster1, input$targetCluster2)
+    
+    # Determine analysis type based on second cluster selection
+    if (input$targetCluster2 == "All") {
+      clear_state("one_vs_all")
+    } else {
+      clear_state("pairwise")
+    }
+    
+    # Run cluster analysis with the unified function that considers all management modules
+    runClusterAnalysis(
+      clustered_seurat(), 
+      input$targetCluster1, 
+      input$targetCluster2, 
+      state,
+      cluster_management,
+      sample_management,
+      condition_management
+    )
+  })
+  
   # Handle Sample comparison
   observeEvent(input$runDESample, {
     req(clustered_seurat(), input$targetSample1, input$targetSample2)
     
-    if (input$targetSample1 == input$targetSample2) {
+    if (input$targetSample1 == input$targetSample2 && input$targetSample2 != "All") {
       showNotification("Please select different samples for comparison.", type = "warning")
       return(NULL)
     }
     
     clear_state("sample_comparison")
     
-    # Run sample comparison analysis
+    # Run sample comparison with integrated filtering
     runSampleAnalysis(
       clustered_seurat(), 
       input$targetSample1, 
       input$targetSample2, 
       state,
-      sample_management
+      sample_management,
+      cluster_management,
+      condition_management
     )
   })
   
@@ -340,7 +365,7 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
   observeEvent(input$runDECondition, {
     req(clustered_seurat(), input$targetCondition1, input$targetCondition2, condition_management)
     
-    if (input$targetCondition1 == input$targetCondition2) {
+    if (input$targetCondition1 == input$targetCondition2 && input$targetCondition2 != "All") {
       showNotification("Please select different conditions for comparison.", type = "warning")
       return(NULL)
     }
@@ -353,14 +378,16 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     
     clear_state("condition_comparison")
     
-    # Run condition comparison analysis
+    # Run condition comparison with integrated filtering
     runConditionAnalysis(
       clustered_seurat(), 
       input$targetCondition1, 
       input$targetCondition2, 
       condition_column,
       state,
-      condition_management
+      condition_management,
+      cluster_management,
+      sample_management
     )
   })
   
@@ -395,32 +422,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     )
   })
   
-  observeEvent(input$runDECluster, {
-    req(clustered_seurat(), input$targetCluster1, input$targetCluster2)
-    current_active_list <- active_cluster_list()
-    
-    if (length(current_active_list) == 0) {
-      showNotification("No active clusters selected.", type = "warning")
-      return(NULL)
-    }
-    
-    # Determine analysis type based on second cluster selection
-    if (input$targetCluster2 == "All") {
-      clear_state("one_vs_all")
-    } else {
-      clear_state("pairwise")
-    }
-    
-    # Run cluster analysis with the unified function
-    runClusterAnalysis(
-      clustered_seurat(), 
-      input$targetCluster1, 
-      input$targetCluster2, 
-      current_active_list, 
-      state,
-      cluster_management
-    )
-  })
   
   # Helper to clear state when starting a new analysis
   clear_state <- function(new_state) {
@@ -447,49 +448,6 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
   active_cluster_list <- reactive({
     cluster_management$getActiveClusterList()
   })
-  
-  # Handle One vs All analysis
-  #observeEvent(input$runDEAll, {
-  #  req(clustered_seurat(), input$targetClusterAll)
-  #  current_active_list <- active_cluster_list()
-  #  
-  #  if (length(current_active_list) == 0) {
-  #    showNotification("No active clusters selected.", type = "warning")
-  #    return(NULL)
-  #  }
-    
-  #  clear_state("one_vs_all")
-    
-    # Run DE analysis
-  #  runOneVsAllAnalysis(
-  #    clustered_seurat(), 
-  #    input$targetClusterAll, 
-  #    current_active_list, 
-  #    state,
-  #    cluster_management
-  #  )
-  #})
-  
-  # Handle Pairwise analysis
-  #observeEvent(input$runDEPair, {
-  #  req(clustered_seurat(), input$targetCluster1, input$targetCluster2)
-  #  
-  #  if (input$targetCluster1 == input$targetCluster2) {
-  #    showNotification("Please select different clusters for comparison.", type = "warning")
-  #    return(NULL)
-  #  }
-  #  
-  #  clear_state("pairwise")
-  #  
-  #  # Run pairwise analysis
-  #  runPairwiseAnalysis(
-  #    clustered_seurat(), 
-  #    input$targetCluster1, 
-  #    input$targetCluster2, 
-  #    state,
-  #    cluster_management
-  #  )
-  #})
   
   # Handle General heatmap analysis
   observeEvent(input$runGeneralHeatmap, {
@@ -586,7 +544,13 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     # Sort by p-value adjusted and then fold change
     results <- results[order(results$p_val_adj, -abs(results$avg_log2FC)), ]
     
-    DT::datatable(results,
+    # Remove the filter_context column from display (but keep it in the data)
+    display_results <- results
+    if ("filter_context" %in% colnames(display_results)) {
+      display_results <- display_results[, !colnames(display_results) %in% "filter_context", drop = FALSE]
+    }
+    
+    DT::datatable(display_results,
                   options = list(
                     pageLength = 10,
                     scrollX = TRUE,
@@ -1067,76 +1031,135 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
   })
 }
 
-#' @title Run One vs All DE Analysis
-#' @description Performs differential expression analysis comparing one cluster against all others.
-#' @param seurat_obj Seurat object containing the clustered data
-#' @param target_cluster Target cluster to compare against others
-#' @param active_clusters List of active clusters to include in analysis
-#' @param state Reactive state list
-#' @param cluster_management Cluster management module instance
+#' @title Apply Global Filtering to Seurat Object
+#' @description Applies filtering based on active clusters, samples, and conditions
+#' @param seurat_obj Seurat object to filter
+#' @param cluster_management Cluster management module
+#' @param sample_management Sample management module 
+#' @param condition_management Condition management module
+#' @return Filtered Seurat object
 #' @keywords internal
-runOneVsAllAnalysis <- function(seurat_obj, target_cluster, active_clusters, state, cluster_management) {
-  withProgress(message = 'Computing one vs all differential expression...', {
-    # Subset to active clusters
-    active_cells <- seurat_obj$seurat_clusters %in% active_clusters
-    seurat_subset <- subset(seurat_obj, cells = colnames(seurat_obj)[active_cells])
-    
-    # Check if enough active clusters
-    if (length(unique(seurat_subset$seurat_clusters)) < 2) {
-      showNotification("Need at least two active clusters for comparison.", type = "warning")
-      return(NULL)
+applyGlobalFiltering <- function(seurat_obj, cluster_management, sample_management, condition_management) {
+  filtered_obj <- seurat_obj
+  cells_to_keep <- rep(TRUE, ncol(filtered_obj))
+  filter_applied <- FALSE
+  
+  # Apply cluster filtering if available
+  if (!is.null(cluster_management)) {
+    active_clusters <- cluster_management$getActiveClusterIds()
+    if (!is.null(active_clusters) && length(active_clusters) > 0) {
+      cluster_cells <- filtered_obj$seurat_clusters %in% active_clusters
+      cells_to_keep <- cells_to_keep & cluster_cells
+      filter_applied <- TRUE
     }
-    
-    # Run DE analysis
-    de_results <- performDEanalysis(seurat_subset, target_cluster)
-    
-    # Check results
-    if (is.null(de_results) || nrow(de_results) == 0) {
-      showNotification("No differential expression results found.", type = "warning")
-      return(NULL)
+  }
+  
+  # Apply sample filtering if available
+  if (!is.null(sample_management)) {
+    active_samples <- sample_management$getActiveSampleIds()
+    if (!is.null(active_samples) && length(active_samples) > 0) {
+      sample_cells <- filtered_obj$sample %in% active_samples
+      cells_to_keep <- cells_to_keep & sample_cells
+      filter_applied <- TRUE
     }
+  }
+  
+  # Apply condition filtering if available
+  if (!is.null(condition_management)) {
+    condition_column <- condition_management$getConditionColumn()
+    active_conditions <- condition_management$getActiveConditions()
     
-    # Add comparison label - use the cluster labels from state first, then fallback to getting them directly
-    current_labels <- if (!is.null(state$cluster_labels)) {
-      state$cluster_labels
-    } else if (!is.null(cluster_management)) {
-      cluster_management$getClusterLabels()
-    } else {
-      NULL
+    if (!is.null(condition_column) && !is.null(active_conditions) && 
+        length(active_conditions) > 0 && 
+        condition_column %in% colnames(filtered_obj@meta.data)) {
+      
+      condition_cells <- filtered_obj@meta.data[[condition_column]] %in% active_conditions
+      cells_to_keep <- cells_to_keep & condition_cells
+      filter_applied <- TRUE
     }
-    
-    target_cluster_str <- as.character(target_cluster)
-    cluster_label <- if (!is.null(current_labels) && target_cluster_str %in% names(current_labels)) {
-      current_labels[[target_cluster_str]]
-    } else {
-      paste("Cluster", target_cluster)
-    }
-    
-    de_results$comparison <- paste(cluster_label, "vs All Active")
-    
-    # Update state
-    state$de_genes(de_results)
-    state$de_status("completed")
-    state$heatmap_data(NULL)
-    state$heatmap_type(NULL)
-  })
+  }
+  
+  # Only subset if filtering was applied and there are cells to keep
+  if (filter_applied && sum(cells_to_keep) > 0) {
+    filtered_obj <- subset(filtered_obj, cells = colnames(filtered_obj)[cells_to_keep])
+  } else if (filter_applied && sum(cells_to_keep) == 0) {
+    # Return NULL if no cells match all filters
+    return(NULL)
+  }
+  
+  return(filtered_obj)
 }
 
-#' @title Run Pairwise DE Analysis
-#' @description Performs differential expression analysis comparing two specific clusters.
-#' @param seurat_obj Seurat object containing the clustered data
+#' @title Run Cluster DE Analysis
+#' @description Performs differential expression analysis comparing one cluster against another or against all others.
+#' @param seurat_obj Seurat object containing the data
 #' @param cluster1 First cluster for comparison
-#' @param cluster2 Second cluster for comparison
+#' @param cluster2 Second cluster for comparison (can be "All" to compare against all other clusters)
 #' @param state Reactive state list
 #' @param cluster_management Cluster management module instance
+#' @param sample_management Sample management module instance
+#' @param condition_management Condition management module instance
 #' @keywords internal
-runPairwiseAnalysis <- function(seurat_obj, cluster1, cluster2, state, cluster_management) {
-  withProgress(message = 'Computing pairwise differential expression...', {
-    de_results <- performDEanalysis(
-      seurat_obj, 
-      cluster1, 
-      cluster2
-    )
+runClusterAnalysis <- function(seurat_obj, cluster1, cluster2, state, 
+                               cluster_management, sample_management = NULL, condition_management = NULL) {
+  withProgress(message = 'Computing cluster differential expression...', {
+    # First apply global filtering based on active items in all management modules
+    filtered_obj <- applyGlobalFiltering(seurat_obj, cluster_management, sample_management, condition_management)
+    
+    # Check if there are cells left after filtering
+    if (is.null(filtered_obj) || ncol(filtered_obj) == 0) {
+      showNotification("No cells match the active filtering criteria.", type = "error")
+      return(NULL)
+    }
+    
+    # Get active clusters for limiting the scope
+    active_clusters <- cluster_management$getActiveClusterIds()
+    if (is.null(active_clusters) || length(active_clusters) == 0) {
+      showNotification("No active clusters selected.", type = "warning")
+      return(NULL)
+    }
+    
+    # Handle "All" case
+    is_one_vs_all <- (cluster2 == "All")
+    
+    if (is_one_vs_all) {
+      # One vs All analysis
+      # Check if enough active clusters
+      if (length(unique(filtered_obj$seurat_clusters)) < 2) {
+        showNotification("Need at least two active clusters for comparison.", type = "warning")
+        return(NULL)
+      }
+      
+      # Run DE analysis - use cluster1 as ident.1 against all others
+      de_results <- FindMarkers(
+        filtered_obj,
+        ident.1 = cluster1,
+        min.pct = 0.25,
+        logfc.threshold = 0.25
+      )
+    } else {
+      # Standard comparison between two clusters
+      if (cluster1 == cluster2) {
+        showNotification("Please select different clusters for comparison.", type = "warning")
+        return(NULL)
+      }
+      
+      # Ensure both clusters exist in the filtered data
+      if (!(cluster1 %in% unique(filtered_obj$seurat_clusters)) || 
+          !(cluster2 %in% unique(filtered_obj$seurat_clusters))) {
+        showNotification("One or both selected clusters are not present after filtering.", type = "error")
+        return(NULL)
+      }
+      
+      # Run pairwise analysis
+      de_results <- FindMarkers(
+        filtered_obj, 
+        ident.1 = cluster1, 
+        ident.2 = cluster2,
+        min.pct = 0.25,
+        logfc.threshold = 0.25
+      )
+    }
     
     # Check results
     if (is.null(de_results) || nrow(de_results) == 0) {
@@ -1144,7 +1167,10 @@ runPairwiseAnalysis <- function(seurat_obj, cluster1, cluster2, state, cluster_m
       return(NULL)
     }
     
-    # Add comparison label - use the cluster labels from state first, then fallback to getting them directly
+    # Add gene names
+    de_results <- addGeneNames(de_results, seurat_obj)
+    
+    # Get cluster labels
     current_labels <- if (!is.null(state$cluster_labels)) {
       state$cluster_labels
     } else if (!is.null(cluster_management)) {
@@ -1154,21 +1180,28 @@ runPairwiseAnalysis <- function(seurat_obj, cluster1, cluster2, state, cluster_m
     }
     
     cluster1_str <- as.character(cluster1)
-    cluster2_str <- as.character(cluster2)
-    
     cluster1_label <- if (!is.null(current_labels) && cluster1_str %in% names(current_labels)) {
       current_labels[[cluster1_str]]
     } else {
       paste("Cluster", cluster1)
     }
     
-    cluster2_label <- if (!is.null(current_labels) && cluster2_str %in% names(current_labels)) {
-      current_labels[[cluster2_str]]
+    # Add comparison label
+    if (is_one_vs_all) {
+      de_results$comparison <- paste(cluster1_label, "vs All Active Clusters")
     } else {
-      paste("Cluster", cluster2)
+      cluster2_str <- as.character(cluster2)
+      cluster2_label <- if (!is.null(current_labels) && cluster2_str %in% names(current_labels)) {
+        current_labels[[cluster2_str]]
+      } else {
+        paste("Cluster", cluster2)
+      }
+      
+      de_results$comparison <- paste(cluster1_label, "vs", cluster2_label)
     }
     
-    de_results$comparison <- paste(cluster1_label, "vs", cluster2_label)
+    # Add additional context about current filtering
+    de_results$filter_context <- buildFilterContext(sample_management, condition_management, cluster_management)
     
     # Update state
     state$de_genes(de_results)
@@ -1176,6 +1209,335 @@ runPairwiseAnalysis <- function(seurat_obj, cluster1, cluster2, state, cluster_m
     state$heatmap_data(NULL)
     state$heatmap_type(NULL)
   })
+}
+
+#' @title Run Sample DE Analysis
+#' @description Performs differential expression analysis comparing one sample against another or against all others.
+#' @param seurat_obj Seurat object containing the data
+#' @param sample1 First sample for comparison
+#' @param sample2 Second sample for comparison (can be "All" to compare against all other samples)
+#' @param state Reactive state list
+#' @param sample_management Sample management module instance
+#' @param cluster_management Cluster management module instance
+#' @param condition_management Condition management module instance
+#' @keywords internal
+runSampleAnalysis <- function(seurat_obj, sample1, sample2, state, 
+                              sample_management, cluster_management = NULL, condition_management = NULL) {
+  withProgress(message = 'Computing sample comparison...', {
+    # First apply global filtering based on active items in all management modules
+    filtered_obj <- applyGlobalFiltering(seurat_obj, cluster_management, sample_management, condition_management)
+    
+    # Check if there are cells left after filtering
+    if (is.null(filtered_obj) || ncol(filtered_obj) == 0) {
+      showNotification("No cells match the active filtering criteria.", type = "error")
+      return(NULL)
+    }
+    
+    # Get all active samples
+    all_active_samples <- sample_management$getActiveSampleIds()
+    if (is.null(all_active_samples) || length(all_active_samples) == 0) {
+      showNotification("No active samples available.", type = "error")
+      return(NULL)
+    }
+    
+    # Handle "All" case
+    is_one_vs_all <- FALSE
+    if (sample2 == "All") {
+      is_one_vs_all <- TRUE
+      # Use all active samples except sample1
+      other_samples <- setdiff(all_active_samples, sample1)
+      if (length(other_samples) == 0) {
+        showNotification("No other active samples to compare against.", type = "error")
+        return(NULL)
+      }
+      
+      # Filter cells for sample1 and other samples
+      sample_cells1 <- filtered_obj$sample == sample1
+      sample_cells_others <- filtered_obj$sample %in% other_samples
+      cells_to_keep <- sample_cells1 | sample_cells_others
+    } else {
+      # Standard comparison between two samples
+      if (sample1 == sample2) {
+        showNotification("Please select different samples for comparison.", type = "warning")
+        return(NULL)
+      }
+      
+      # Ensure both samples exist in the filtered data
+      if (!(sample1 %in% unique(filtered_obj$sample)) || 
+          !(sample2 %in% unique(filtered_obj$sample))) {
+        showNotification("One or both selected samples are not present after filtering.", type = "error")
+        return(NULL)
+      }
+      
+      # Filter cells for the two selected samples
+      sample_cells1 <- filtered_obj$sample == sample1
+      sample_cells2 <- filtered_obj$sample == sample2
+      cells_to_keep <- sample_cells1 | sample_cells2
+    }
+    
+    # Check if any cells match
+    if (sum(cells_to_keep) == 0) {
+      showNotification("No cells found for the selected samples after filtering.", type = "error")
+      return(NULL)
+    }
+    
+    # Subset data
+    seurat_subset <- subset(filtered_obj, cells = colnames(filtered_obj)[cells_to_keep])
+    
+    # Create a temporary grouping factor for FindMarkers
+    if (is_one_vs_all) {
+      seurat_subset$temp_sample_group <- ifelse(seurat_subset$sample == sample1, "sample1", "other_samples")
+    } else {
+      seurat_subset$temp_sample_group <- ifelse(seurat_subset$sample == sample1, "sample1", "sample2")
+    }
+    Idents(seurat_subset) <- "temp_sample_group"
+    
+    # Run DE analysis
+    de_results <- FindMarkers(
+      seurat_subset,
+      ident.1 = "sample1",
+      ident.2 = if (is_one_vs_all) "other_samples" else "sample2",
+      min.pct = 0.25,
+      logfc.threshold = 0
+    )
+    
+    # Check results
+    if (is.null(de_results) || nrow(de_results) == 0) {
+      showNotification("No differential expression results found.", type = "warning")
+      return(NULL)
+    }
+    
+    # Add gene names
+    de_results <- addGeneNames(de_results, seurat_obj)
+    
+    # Get sample labels
+    sample_labels <- sample_management$getSampleLabels()
+    
+    sample1_label <- if (!is.null(sample_labels) && sample1 %in% names(sample_labels)) {
+      sample_labels[[sample1]]
+    } else {
+      sample1
+    }
+    
+    # Add comparison label
+    if (is_one_vs_all) {
+      de_results$comparison <- paste(sample1_label, "vs All Other Samples")
+    } else {
+      sample2_label <- if (!is.null(sample_labels) && sample2 %in% names(sample_labels)) {
+        sample_labels[[sample2]]
+      } else {
+        sample2
+      }
+      de_results$comparison <- paste(sample1_label, "vs", sample2_label)
+    }
+    
+    # Add additional context about current filtering
+    de_results$filter_context <- buildFilterContext(sample_management, condition_management, cluster_management)
+    
+    # Update state
+    state$de_genes(de_results)
+    state$de_status("completed")
+    state$heatmap_data(NULL)
+    state$heatmap_type(NULL)
+  })
+}
+
+#' @title Run Condition DE Analysis
+#' @description Performs differential expression analysis comparing one condition against another or against all others.
+#' @param seurat_obj Seurat object containing the data
+#' @param condition1 First condition for comparison
+#' @param condition2 Second condition for comparison (can be "All" to compare against all other conditions)
+#' @param condition_column Column name containing condition information
+#' @param state Reactive state list
+#' @param condition_management Condition management module instance
+#' @param cluster_management Cluster management module instance
+#' @param sample_management Sample management module instance
+#' @keywords internal
+runConditionAnalysis <- function(seurat_obj, condition1, condition2, condition_column, state, 
+                                 condition_management, cluster_management = NULL, sample_management = NULL) {
+  withProgress(message = 'Computing condition comparison...', {
+    # First apply global filtering based on active items in all management modules
+    filtered_obj <- applyGlobalFiltering(seurat_obj, cluster_management, sample_management, condition_management)
+    
+    # Check if there are cells left after filtering
+    if (is.null(filtered_obj) || ncol(filtered_obj) == 0) {
+      showNotification("No cells match the active filtering criteria.", type = "error")
+      return(NULL)
+    }
+    
+    # Get all active conditions
+    all_active_conditions <- condition_management$getActiveConditions()
+    if (is.null(all_active_conditions) || length(all_active_conditions) == 0) {
+      showNotification("No active conditions available.", type = "error")
+      return(NULL)
+    }
+    
+    # Handle "All" case
+    is_one_vs_all <- FALSE
+    if (condition2 == "All") {
+      is_one_vs_all <- TRUE
+      # Use all active conditions except condition1
+      other_conditions <- setdiff(all_active_conditions, condition1)
+      if (length(other_conditions) == 0) {
+        showNotification("No other active conditions to compare against.", type = "error")
+        return(NULL)
+      }
+      
+      # Filter cells for condition1 and other conditions
+      condition_cells1 <- filtered_obj@meta.data[[condition_column]] == condition1
+      condition_cells_others <- filtered_obj@meta.data[[condition_column]] %in% other_conditions
+      cells_to_keep <- condition_cells1 | condition_cells_others
+    } else {
+      # Standard comparison between two conditions
+      if (condition1 == condition2) {
+        showNotification("Please select different conditions for comparison.", type = "warning")
+        return(NULL)
+      }
+      
+      # Ensure both conditions exist in the filtered data
+      if (!(condition1 %in% unique(filtered_obj@meta.data[[condition_column]])) || 
+          !(condition2 %in% unique(filtered_obj@meta.data[[condition_column]]))) {
+        showNotification("One or both selected conditions are not present after filtering.", type = "error")
+        return(NULL)
+      }
+      
+      # Filter cells for the two selected conditions
+      condition_cells1 <- filtered_obj@meta.data[[condition_column]] == condition1
+      condition_cells2 <- filtered_obj@meta.data[[condition_column]] == condition2
+      cells_to_keep <- condition_cells1 | condition_cells2
+    }
+    
+    # Skip if no cells match
+    if (sum(cells_to_keep) == 0) {
+      showNotification("No cells found for the selected conditions after filtering.", type = "error")
+      return(NULL)
+    }
+    
+    # Subset data
+    seurat_subset <- subset(filtered_obj, cells = colnames(filtered_obj)[cells_to_keep])
+    
+    # Create a temporary grouping factor for FindMarkers
+    if (is_one_vs_all) {
+      seurat_subset$temp_condition_group <- ifelse(
+        seurat_subset@meta.data[[condition_column]] == condition1, 
+        "condition1", 
+        "other_conditions"
+      )
+    } else {
+      seurat_subset$temp_condition_group <- ifelse(
+        seurat_subset@meta.data[[condition_column]] == condition1, 
+        "condition1", 
+        "condition2"
+      )
+    }
+    Idents(seurat_subset) <- "temp_condition_group"
+    
+    # Run DE analysis
+    de_results <- FindMarkers(
+      seurat_subset,
+      ident.1 = "condition1",
+      ident.2 = if (is_one_vs_all) "other_conditions" else "condition2",
+      min.pct = 0.25,
+      logfc.threshold = 0
+    )
+    
+    # Check results
+    if (is.null(de_results) || nrow(de_results) == 0) {
+      showNotification("No differential expression results found.", type = "warning")
+      return(NULL)
+    }
+    
+    # Add gene names
+    de_results <- addGeneNames(de_results, seurat_obj)
+    
+    # Get condition labels
+    condition_labels <- condition_management$getConditionLabels()
+    
+    condition1_label <- if (!is.null(condition_labels) && condition1 %in% names(condition_labels)) {
+      condition_labels[[condition1]]
+    } else {
+      condition1
+    }
+    
+    # Add comparison label
+    if (is_one_vs_all) {
+      de_results$comparison <- paste(condition1_label, "vs All Other Conditions")
+    } else {
+      condition2_label <- if (!is.null(condition_labels) && condition2 %in% names(condition_labels)) {
+        condition_labels[[condition2]]
+      } else {
+        condition2
+      }
+      de_results$comparison <- paste(condition1_label, "vs", condition2_label)
+    }
+    
+    # Add additional context about current filtering
+    de_results$filter_context <- buildFilterContext(sample_management, condition_management, cluster_management)
+    
+    # Update state
+    state$de_genes(de_results)
+    state$de_status("completed")
+    state$heatmap_data(NULL)
+    state$heatmap_type(NULL)
+  })
+}
+
+#' @title Build Filtering Context String
+#' @description Creates a descriptive string of the current filtering state
+#' @param sample_management Sample management module
+#' @param condition_management Condition management module
+#' @param cluster_management Cluster management module
+#' @return String describing active filters
+#' @keywords internal
+buildFilterContext <- function(sample_management, condition_management, cluster_management) {
+  context_parts <- c()
+  
+  # Add cluster context
+  if (!is.null(cluster_management)) {
+    active_clusters <- cluster_management$getActiveClusterIds()
+    if (!is.null(active_clusters) && length(active_clusters) > 0) {
+      if (length(active_clusters) == 1) {
+        cluster_context <- paste("Restricted to cluster", active_clusters)
+      } else {
+        cluster_context <- paste("Restricted to", length(active_clusters), "clusters")
+      }
+      context_parts <- c(context_parts, cluster_context)
+    }
+  }
+  
+  # Add sample context
+  if (!is.null(sample_management)) {
+    active_samples <- sample_management$getActiveSampleIds()
+    if (!is.null(active_samples) && length(active_samples) > 0) {
+      if (length(active_samples) == 1) {
+        sample_context <- paste("Restricted to sample", active_samples)
+      } else {
+        sample_context <- paste("Restricted to", length(active_samples), "samples")
+      }
+      context_parts <- c(context_parts, sample_context)
+    }
+  }
+  
+  # Add condition context
+  if (!is.null(condition_management)) {
+    condition_column <- condition_management$getConditionColumn()
+    active_conditions <- condition_management$getActiveConditions()
+    if (!is.null(condition_column) && !is.null(active_conditions) && length(active_conditions) > 0) {
+      if (length(active_conditions) == 1) {
+        condition_context <- paste("Restricted to condition", active_conditions)
+      } else {
+        condition_context <- paste("Restricted to", length(active_conditions), "conditions")
+      }
+      context_parts <- c(context_parts, condition_context)
+    }
+  }
+  
+  # Combine all parts
+  if (length(context_parts) > 0) {
+    return(paste(context_parts, collapse = "; "))
+  } else {
+    return("No filtering applied")
+  }
 }
 
 #' @title Run General Heatmap Analysis
@@ -1370,6 +1732,20 @@ renderDEResultsUI <- function(ns, state, clustered_seurat, condition_column = NU
       ))
     }
     
+    # Add filter context information if available
+    filter_context_ui <- NULL
+    if ("filter_context" %in% colnames(current_de_genes)) {
+      filter_context <- current_de_genes$filter_context[1]
+      if (!is.null(filter_context) && filter_context != "") {
+        filter_context_ui <- div(
+          class = "alert alert-info",
+          style = "margin-bottom: 15px;",
+          icon("info-circle"),
+          filter_context
+        )
+      }
+    }
+    
     has_heatmap <- !is.null(state$heatmap_data()) && 
       !is.null(state$heatmap_type()) && 
       state$heatmap_type() == "specific"
@@ -1384,6 +1760,8 @@ renderDEResultsUI <- function(ns, state, clustered_seurat, condition_column = NU
     
     tagList(
       h3(paste(title_prefix, "Expression Results")),
+      # Insert filter context info if available
+      if (!is.null(filter_context_ui)) filter_context_ui,
       div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
           h4(style = "margin: 0;", "Volcano Plot"),
           downloadButton(ns("downloadVolcanoPlot"), "Save Plot", 
@@ -1922,121 +2300,7 @@ createDEAnalysisUI <- function(ns, cluster_choices, sample_choices = NULL, condi
   )
 }
 
-#' @title Run Cluster DE Analysis
-#' @description Performs differential expression analysis comparing one cluster against another or against all others.
-#' @param seurat_obj Seurat object containing the data
-#' @param cluster1 First cluster for comparison
-#' @param cluster2 Second cluster for comparison (can be "All" to compare against all other clusters)
-#' @param active_clusters List of active clusters to include in analysis
-#' @param state Reactive state list
-#' @param cluster_management Cluster management module instance
-#' @keywords internal
-runClusterAnalysis <- function(seurat_obj, cluster1, cluster2, active_clusters, state, cluster_management) {
-  withProgress(message = 'Computing cluster differential expression...', {
-    # Handle "All" case
-    is_one_vs_all <- (cluster2 == "All")
-    
-    if (is_one_vs_all) {
-      # One vs All analysis
-      # Subset to active clusters
-      active_cells <- seurat_obj$seurat_clusters %in% active_clusters
-      seurat_subset <- subset(seurat_obj, cells = colnames(seurat_obj)[active_cells])
-      
-      # Check if enough active clusters
-      if (length(unique(seurat_subset$seurat_clusters)) < 2) {
-        showNotification("Need at least two active clusters for comparison.", type = "warning")
-        return(NULL)
-      }
-      
-      # Run DE analysis - use cluster1 as ident.1 against all others
-      de_results <- FindMarkers(
-        seurat_subset,
-        ident.1 = cluster1,
-        min.pct = 0.25,
-        logfc.threshold = 0.25
-      )
-    } else {
-      # Standard comparison between two clusters
-      if (cluster1 == cluster2) {
-        showNotification("Please select different clusters for comparison.", type = "warning")
-        return(NULL)
-      }
-      
-      # Run pairwise analysis
-      de_results <- FindMarkers(
-        seurat_obj, 
-        ident.1 = cluster1, 
-        ident.2 = cluster2,
-        min.pct = 0.25,
-        logfc.threshold = 0.25
-      )
-    }
-    
-    # Check results
-    if (is.null(de_results) || nrow(de_results) == 0) {
-      showNotification("No differential expression results found.", type = "warning")
-      return(NULL)
-    }
-    
-    # Add gene names
-    de_results <- addGeneNames(de_results, seurat_obj)
-    
-    # Get cluster labels
-    current_labels <- if (!is.null(state$cluster_labels)) {
-      state$cluster_labels
-    } else if (!is.null(cluster_management)) {
-      cluster_management$getClusterLabels()
-    } else {
-      NULL
-    }
-    
-    cluster1_str <- as.character(cluster1)
-    cluster1_label <- if (!is.null(current_labels) && cluster1_str %in% names(current_labels)) {
-      current_labels[[cluster1_str]]
-    } else {
-      paste("Cluster", cluster1)
-    }
-    
-    # Add comparison label
-    if (is_one_vs_all) {
-      de_results$comparison <- paste(cluster1_label, "vs All Active Clusters")
-    } else {
-      cluster2_str <- as.character(cluster2)
-      cluster2_label <- if (!is.null(current_labels) && cluster2_str %in% names(current_labels)) {
-        current_labels[[cluster2_str]]
-      } else {
-        paste("Cluster", cluster2)
-      }
-      
-      de_results$comparison <- paste(cluster1_label, "vs", cluster2_label)
-    }
-    
-    # Update state
-    state$de_genes(de_results)
-    state$de_status("completed")
-    state$heatmap_data(NULL)
-    state$heatmap_type(NULL)
-  })
-}
-
 # Visualization functions
-
-#' @title Create Volcano Plot
-#' @description Creates a volcano plot from differential expression results.
-#' @param results Differential expression results data frame
-#' @return A ggplot object with the volcano plot
-#' @keywords internal
-createVolcanoPlot <- function(results) {
-  ggplot(results, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
-    geom_point(aes(color = abs(avg_log2FC) > 0.25 & p_val_adj < 0.05)) +
-    scale_color_manual(values = c("grey", "red")) +
-    theme_classic() +
-    geom_vline(xintercept = c(-0.25, 0.25), linetype = "dashed") +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
-    labs(title = unique(results$comparison),
-         color = "Significant") +
-    theme(legend.position = "bottom")
-}
 
 #' @title Create Boxplot UI
 #' @description Creates UI elements for the gene expression boxplot with searchable gene input
@@ -2255,233 +2519,6 @@ setupGeneSearch <- function(input, output, session, clustered_seurat) {
     # Update the selectize input
     match_choices <- setNames(all_matches, match_labels)
     updateSelectizeInput(session, "boxplot_gene", choices = match_choices, server = TRUE)
-  })
-}
-
-#' @title Run Sample DE Analysis
-#' @description Performs differential expression analysis comparing one sample against another or against all others.
-#' @param seurat_obj Seurat object containing the data
-#' @param sample1 First sample for comparison
-#' @param sample2 Second sample for comparison (can be "All" to compare against all other samples)
-#' @param state Reactive state list
-#' @param sample_management Sample management module instance
-#' @keywords internal
-runSampleAnalysis <- function(seurat_obj, sample1, sample2, state, sample_management) {
-  withProgress(message = 'Computing sample comparison...', {
-    # Get all active samples
-    all_active_samples <- sample_management$getActiveSampleIds()
-    if (is.null(all_active_samples) || length(all_active_samples) == 0) {
-      showNotification("No active samples available.", type = "error")
-      return(NULL)
-    }
-    
-    # Handle "All" case
-    is_one_vs_all <- FALSE
-    if (sample2 == "All") {
-      is_one_vs_all <- TRUE
-      # Use all active samples except sample1
-      other_samples <- setdiff(all_active_samples, sample1)
-      if (length(other_samples) == 0) {
-        showNotification("No other active samples to compare against.", type = "error")
-        return(NULL)
-      }
-      
-      # Filter cells for sample1 and other samples
-      sample_cells1 <- seurat_obj$sample == sample1
-      sample_cells_others <- seurat_obj$sample %in% other_samples
-      cells_to_keep <- sample_cells1 | sample_cells_others
-    } else {
-      # Standard comparison between two samples
-      if (sample1 == sample2) {
-        showNotification("Please select different samples for comparison.", type = "warning")
-        return(NULL)
-      }
-      
-      # Filter cells for the two selected samples
-      sample_cells1 <- seurat_obj$sample == sample1
-      sample_cells2 <- seurat_obj$sample == sample2
-      cells_to_keep <- sample_cells1 | sample_cells2
-    }
-    
-    # Skip if no cells match
-    if (sum(cells_to_keep) == 0) {
-      showNotification("No cells found for the selected samples.", type = "error")
-      return(NULL)
-    }
-    
-    # Subset data
-    seurat_subset <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
-    
-    # Create a temporary grouping factor for FindMarkers
-    if (is_one_vs_all) {
-      seurat_subset$temp_sample_group <- ifelse(seurat_subset$sample == sample1, "sample1", "other_samples")
-    } else {
-      seurat_subset$temp_sample_group <- ifelse(seurat_subset$sample == sample1, "sample1", "sample2")
-    }
-    Idents(seurat_subset) <- "temp_sample_group"
-    
-    # Run DE analysis
-    de_results <- FindMarkers(
-      seurat_subset,
-      ident.1 = "sample1",
-      ident.2 = if (is_one_vs_all) "other_samples" else "sample2",
-      min.pct = 0.25,
-      logfc.threshold = 0
-    )
-    
-    # Check results
-    if (is.null(de_results) || nrow(de_results) == 0) {
-      showNotification("No differential expression results found.", type = "warning")
-      return(NULL)
-    }
-    
-    # Add gene names
-    de_results <- addGeneNames(de_results, seurat_obj)
-    
-    # Get sample labels
-    sample_labels <- sample_management$getSampleLabels()
-    
-    sample1_label <- if (!is.null(sample_labels) && sample1 %in% names(sample_labels)) {
-      sample_labels[[sample1]]
-    } else {
-      sample1
-    }
-    
-    # Add comparison label
-    if (is_one_vs_all) {
-      de_results$comparison <- paste(sample1_label, "vs All Other Samples")
-    } else {
-      sample2_label <- if (!is.null(sample_labels) && sample2 %in% names(sample_labels)) {
-        sample_labels[[sample2]]
-      } else {
-        sample2
-      }
-      de_results$comparison <- paste(sample1_label, "vs", sample2_label)
-    }
-    
-    # Update state
-    state$de_genes(de_results)
-    state$de_status("completed")
-    state$heatmap_data(NULL)
-    state$heatmap_type(NULL)
-  })
-}
-
-#' @title Run Condition DE Analysis
-#' @description Performs differential expression analysis comparing one condition against another or against all others.
-#' @param seurat_obj Seurat object containing the data
-#' @param condition1 First condition for comparison
-#' @param condition2 Second condition for comparison (can be "All" to compare against all other conditions)
-#' @param condition_column Column name containing condition information
-#' @param state Reactive state list
-#' @param condition_management Condition management module instance
-#' @keywords internal
-runConditionAnalysis <- function(seurat_obj, condition1, condition2, condition_column, state, condition_management) {
-  withProgress(message = 'Computing condition comparison...', {
-    # Get all active conditions
-    all_active_conditions <- condition_management$getActiveConditions()
-    if (is.null(all_active_conditions) || length(all_active_conditions) == 0) {
-      showNotification("No active conditions available.", type = "error")
-      return(NULL)
-    }
-    
-    # Handle "All" case
-    is_one_vs_all <- FALSE
-    if (condition2 == "All") {
-      is_one_vs_all <- TRUE
-      # Use all active conditions except condition1
-      other_conditions <- setdiff(all_active_conditions, condition1)
-      if (length(other_conditions) == 0) {
-        showNotification("No other active conditions to compare against.", type = "error")
-        return(NULL)
-      }
-      
-      # Filter cells for condition1 and other conditions
-      condition_cells1 <- seurat_obj@meta.data[[condition_column]] == condition1
-      condition_cells_others <- seurat_obj@meta.data[[condition_column]] %in% other_conditions
-      cells_to_keep <- condition_cells1 | condition_cells_others
-    } else {
-      # Standard comparison between two conditions
-      if (condition1 == condition2) {
-        showNotification("Please select different conditions for comparison.", type = "warning")
-        return(NULL)
-      }
-      
-      # Filter cells for the two selected conditions
-      condition_cells1 <- seurat_obj@meta.data[[condition_column]] == condition1
-      condition_cells2 <- seurat_obj@meta.data[[condition_column]] == condition2
-      cells_to_keep <- condition_cells1 | condition_cells2
-    }
-    
-    # Skip if no cells match
-    if (sum(cells_to_keep) == 0) {
-      showNotification("No cells found for the selected conditions.", type = "error")
-      return(NULL)
-    }
-    
-    # Subset data
-    seurat_subset <- subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep])
-    
-    # Create a temporary grouping factor for FindMarkers
-    if (is_one_vs_all) {
-      seurat_subset$temp_condition_group <- ifelse(
-        seurat_subset@meta.data[[condition_column]] == condition1, 
-        "condition1", 
-        "other_conditions"
-      )
-    } else {
-      seurat_subset$temp_condition_group <- ifelse(
-        seurat_subset@meta.data[[condition_column]] == condition1, 
-        "condition1", 
-        "condition2"
-      )
-    }
-    Idents(seurat_subset) <- "temp_condition_group"
-    
-    # Run DE analysis
-    de_results <- FindMarkers(
-      seurat_subset,
-      ident.1 = "condition1",
-      ident.2 = if (is_one_vs_all) "other_conditions" else "condition2",
-      min.pct = 0.25,
-      logfc.threshold = 0
-    )
-    
-    # Check results
-    if (is.null(de_results) || nrow(de_results) == 0) {
-      showNotification("No differential expression results found.", type = "warning")
-      return(NULL)
-    }
-    
-    # Add gene names
-    de_results <- addGeneNames(de_results, seurat_obj)
-    
-    # Get condition labels
-    condition_labels <- condition_management$getConditionLabels()
-    
-    condition1_label <- if (!is.null(condition_labels) && condition1 %in% names(condition_labels)) {
-      condition_labels[[condition1]]
-    } else {
-      condition1
-    }
-    
-    # Add comparison label
-    if (is_one_vs_all) {
-      de_results$comparison <- paste(condition1_label, "vs All Other Conditions")
-    } else {
-      condition2_label <- if (!is.null(condition_labels) && condition2 %in% names(condition_labels)) {
-        condition_labels[[condition2]]
-      } else {
-        condition2
-      }
-      de_results$comparison <- paste(condition1_label, "vs", condition2_label)
-    }
-    
-    # Update state
-    state$de_genes(de_results)
-    state$de_status("completed")
-    state$heatmap_data(NULL)
-    state$heatmap_type(NULL)
   })
 }
 
