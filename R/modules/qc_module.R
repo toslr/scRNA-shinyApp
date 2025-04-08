@@ -69,6 +69,19 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       }
     })
     
+    # Add flag to control UI updates
+    inhibit_ui_updates <- reactiveVal(FALSE)
+    
+    # Add debouncing for UI updates to prevent multiple rapid redraws
+    observe({
+      # This will throttle UI updates when typing
+      if (inhibit_ui_updates()) {
+        # If inhibited, don't trigger UI updates for a short time
+        invalidateLater(300) # Wait 300ms before allowing updates again
+        inhibit_ui_updates(FALSE)
+      }
+    })
+    
     # Watch for changes in sample management active status
     observe({
       req(sample_management)
@@ -184,8 +197,6 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       # Return the filtered data
       return(filtered_seurat_viz)
       
-      # Return the filtered data
-      #return(filtered_seurat)
     })
     
     # Create violin plot as a reactive expression
@@ -272,23 +283,38 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
     # Render filter controls
     output$filterControls <- renderUI({
       req(seurat_data())
-      createFilterControls(session, values)
+      # Use isolate to prevent UI rebuilding while typing
+      isolate({
+        createFilterControls(session, values)
+      })
     })
     
     # Observers to update the stored filter parameters when inputs change
+    # Use isolate to prevent unwanted reactivity
     observeEvent(input$minFeature, {
-      values$min_feature <- input$minFeature
-    })
+      isolate({
+        values$min_feature <- input$minFeature
+      })
+    }, ignoreInit = TRUE, ignoreNULL = TRUE)
+    
     observeEvent(input$maxFeature, {
-      values$max_feature <- input$maxFeature
-    })
+      isolate({
+        values$max_feature <- input$maxFeature
+      })
+    }, ignoreInit = TRUE, ignoreNULL = TRUE)
+    
     observeEvent(input$maxMT, {
-      values$max_mt <- input$maxMT
-    })
+      isolate({
+        values$max_mt <- input$maxMT
+      })
+    }, ignoreInit = TRUE, ignoreNULL = TRUE)
     
     # Process data when the button is clicked
     observeEvent(input$processSeurat, {
       req(seurat_data(), input$minFeature, input$maxFeature, input$maxMT)
+      
+      # Inhibit UI updates during processing
+      inhibit_ui_updates(TRUE)
       
       # Store current parameter values
       values$min_feature <- input$minFeature
@@ -361,6 +387,11 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
         percent_retained, "%). Filtered out ", cells_filtered, " cells.", 
         sample_info, condition_info, "; ", filter_summary
       )
+      
+      # Release UI update inhibitor
+      shinyjs::delay(200, {
+        inhibit_ui_updates(FALSE)
+      })
     })
     
     # Return the processed data
@@ -568,9 +599,16 @@ createFilterControls <- function(session, values) {
       tags$strong("Please adjust filtering parameters:"),
       tags$br(),
       tags$br(),
-      numericInput(ns("minFeature"), "Minimum Features:", values$min_feature),
-      numericInput(ns("maxFeature"), "Maximum Features:", values$max_feature),
-      numericInput(ns("maxMT"), "Maximum MT %:", values$max_mt),
+      # Use an id that can be tracked
+      div(id = ns("minFeature_container"),
+          numericInput(ns("minFeature"), "Minimum Features:", values$min_feature)
+      ),
+      div(id = ns("maxFeature_container"),
+          numericInput(ns("maxFeature"), "Maximum Features:", values$max_feature)
+      ),
+      div(id = ns("maxMT_container"),
+          numericInput(ns("maxMT"), "Maximum MT %:", values$max_mt)
+      ),
       actionButton(ns("processSeurat"), "Filter and run PCA")
     )
   )
