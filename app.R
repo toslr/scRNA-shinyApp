@@ -18,6 +18,7 @@ library(htmlwidgets)
 library(RColorBrewer)
 library(fontawesome)
 library(ggpubr)
+library(hdf5r)
 
 # Source metadata module
 source("R/modules/metadata_module.R")
@@ -25,6 +26,7 @@ source("R/modules/metadata_module.R")
 # Source data input
 source("R/modules/data_input_module.R")
 source("R/modules/data_input_utils/geo_data_utils.R")
+source("R/modules/data_input_utils/file_format_utils.R")
 
 # Source qc module
 source("R/modules/qc_module.R")

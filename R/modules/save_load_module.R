@@ -85,6 +85,7 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
           # Use isolate to get values without creating dependencies
           isolate({
             # Get Seurat objects
+            current_seurat <- NULL
             tryCatch({
               if (is.reactive(seurat_data)) {
                 current_seurat <- seurat_data()

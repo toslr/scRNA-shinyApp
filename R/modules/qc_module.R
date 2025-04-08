@@ -152,22 +152,37 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       # Apply sample limit to prevent overcrowding (get first 5 samples)
       filtered_seurat <- getSamplesToPlot(filtered_seurat)
       
+      # For large datasets, downsample to improve plotting performance
+      if (ncol(filtered_seurat) > 10000) {
+        print(paste("Downsampling from", ncol(filtered_seurat), "cells to 10000 cells for visualization"))
+        set.seed(42)  # For reproducibility
+        cells_to_keep <- sample(colnames(filtered_seurat), min(10000, ncol(filtered_seurat)))
+        filtered_seurat_viz <- subset(filtered_seurat, cells = cells_to_keep)
+      } else {
+        filtered_seurat_viz <- filtered_seurat
+      }
+      
       # If we have sample labels, apply them to the plot data
       if (!is.null(values$sample_labels)) {
         # For each sample in the dataset, update its display name if we have a label
-        current_samples <- unique(filtered_seurat$sample)
+        current_samples <- unique(filtered_seurat_viz$sample)
         for (sample in current_samples) {
           if (sample %in% names(values$sample_labels)) {
-            # Create a temporary variable to use for plotting
-            filtered_seurat$sample_label <- filtered_seurat$sample
+            # Create a temporary variable to use for plotting if it doesn't exist
+            if (!"sample_label" %in% colnames(filtered_seurat_viz@meta.data)) {
+              filtered_seurat_viz$sample_label <- filtered_seurat_viz$sample
+            }
             # Replace sample IDs with their labels
-            filtered_seurat$sample_label[filtered_seurat$sample == sample] <- values$sample_labels[[sample]]
+            filtered_seurat_viz$sample_label[filtered_seurat_viz$sample == sample] <- values$sample_labels[[sample]]
           }
         }
       }
       
       # Return the filtered data
-      return(filtered_seurat)
+      return(filtered_seurat_viz)
+      
+      # Return the filtered data
+      #return(filtered_seurat)
     })
     
     # Create violin plot as a reactive expression
@@ -380,25 +395,49 @@ getSamplesToPlot <- function(seurat_obj) {
 }
 
 #' @title Create QC Plot
-#' @description Creates violin plots for key QC metrics (feature count, UMI count, mitochondrial percentage).
+#' @description Creates violin plots for key QC metrics with improved formatting for large datasets
 #' @param seurat_obj Seurat object to visualize
 #' @return A ggplot object with violin plots for QC metrics
 #' @keywords internal
 createQCPlot <- function(seurat_obj) {
-  # Check if we have sample_label column
-  if ("sample_label" %in% colnames(seurat_obj@meta.data)) {
-    # Use sample_label instead of sample for grouping
-    VlnPlot(seurat_obj, 
-            features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
-            group.by = "sample_label",
-            ncol = 3)
+  # Print some diagnostic information
+  print(paste("Number of cells:", ncol(seurat_obj)))
+  print(paste("Number of features:", nrow(seurat_obj)))
+  print(paste("QC Metrics in metadata:", 
+              paste(intersect(c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
+                              colnames(seurat_obj@meta.data)), collapse=", ")))
+  
+  # Check if we have sample_label column to use instead
+  group_var <- if ("sample_label" %in% colnames(seurat_obj@meta.data)) {
+    "sample_label"
   } else {
-    # Fall back to original behavior
-    VlnPlot(seurat_obj, 
-            features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), 
-            group.by = "sample",
-            ncol = 3)
+    "sample"
   }
+  
+  # Create plots individually for more control
+  # nFeature plot
+  p1 <- VlnPlot(seurat_obj, features = "nFeature_RNA", group.by = group_var, pt.size = 0.1) +
+    theme(legend.position = "none") +
+    ggtitle("Number of Features")
+  
+  # nCount plot
+  p2 <- VlnPlot(seurat_obj, features = "nCount_RNA", group.by = group_var, pt.size = 0.1) +
+    theme(legend.position = "none") +
+    ggtitle("Number of UMIs")
+  
+  # percent.mt plot - only if it exists
+  if ("percent.mt" %in% colnames(seurat_obj@meta.data)) {
+    p3 <- VlnPlot(seurat_obj, features = "percent.mt", group.by = group_var, pt.size = 0.1) +
+      ggtitle("Mitochondrial %")
+    
+    # Combine all three plots
+    p_combined <- patchwork::wrap_plots(list(p1, p2, p3), ncol = 3)
+  } else {
+    # Just combine the two plots if percent.mt is missing
+    p_combined <- patchwork::wrap_plots(list(p1, p2), ncol = 2)
+  }
+  
+  return(p_combined)
 }
 
 #' @title Save QC Plot

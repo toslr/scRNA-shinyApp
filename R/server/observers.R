@@ -25,7 +25,12 @@ setupObservers <- function(steps_completed, seurat_data, metadata_module, proces
   
   # Track data input completion
   observe({
-    steps_completed$data_input <- !is.null(seurat_data())
+    tryCatch({
+      steps_completed$data_input <- !is.null(seurat_data())
+    }, error = function(e) {
+      print(paste("Error checking data input:", e$message))
+      steps_completed$data_input <- FALSE
+    })
   })
   
   # Track QC completion

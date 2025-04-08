@@ -21,8 +21,14 @@ buildServer <- function() {
     
     # Extract Seurat object with proper reactive chain
     seurat_data <- reactive({
-      req(data_input())
-      data_input()
+      # Check if data_input is a list with a data element, or directly a reactive
+      if (is.list(data_input) && is.function(data_input$data)) {
+        req(data_input$data())
+        data_input$data()
+      } else {
+        req(data_input())
+        data_input()
+      }
     })
     
     # Initialize management modules
@@ -114,7 +120,15 @@ buildServer <- function() {
         # Update original data
         incProgress(0.2, detail = "Restoring data")
         if (!is.null(data$seurat_data)) {
-          data_input(data$seurat_data)
+          # Check how data_input is structured and update accordingly
+          if (is.reactive(data_input)) {
+            data_input(data$seurat_data)
+          } else if (is.list(data_input) && is.function(data_input$data)) {
+            # For the new structure where data_input is a list with a data reactiveVal
+            data_input$data(data$seurat_data)
+          } else {
+            showNotification("Error restoring data: incompatible format", type = "error")
+          }
         }
         
         # CRITICAL: Directly update the processed Seurat object without triggering computation
