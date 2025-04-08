@@ -11,9 +11,13 @@ buildUI <- function() {
     includeCSS("www/styles.css"),
     includeScript("www/script.js"),
     
-    # Top bar with title
+    # Top bar with title and navigation
     div(id = "topbar",
-        h1(id = "app-title", "Single-Cell RNA Analysis")
+        h1(id = "app-title", "Single-Cell RNA Analysis"),
+        # Add the navigation panel here
+        div(id = "top-navigation",
+            uiOutput("metroNavigation")
+        )
     ),
     
     # Main layout
@@ -59,22 +63,6 @@ buildUI <- function() {
               ),
               div(class = "section-content",
                   saveLoadUI("saveLoad")
-              )
-          ),
-          
-          # Navigation section
-          div(class = "sidebar-section collapsible-section",
-              div(class = "section-header",
-                  h4("Navigation", style = "display: inline;"),
-                  tags$button(
-                    class = "btn btn-link btn-collapse",
-                    tags$i(class = "fa fa-chevron-down")
-                  )
-              ),
-              div(class = "section-content",
-                  div(id = "navigation-panel",
-                      uiOutput("taskList")
-                  )
               )
           ),
           

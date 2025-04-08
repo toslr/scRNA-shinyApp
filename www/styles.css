@@ -95,7 +95,8 @@
 }
 
 .section-header {
-  padding-top: 30px;
+  margin-top: 0; /* Reset the top margin */
+  padding-top: 0; /* Reset the top padding */
   margin-bottom: 20px;
 }
 
@@ -118,6 +119,8 @@
   font-size: 24px;
   font-weight: 500;
   margin: 0;
+  margin-right: auto; /* Push title to the left */
+  padding-left: 10px;
 }
 
 #navigation-panel {
@@ -151,8 +154,10 @@
   background-color: #e9ecef;
 }
 
-#metadata-section {
-  padding-top: 15px;
+/* Section spacing adjustments */
+#metadata-section, #qc-section, #dimred-section, #de-section {
+  padding-top: 80px; /* Add padding at the top of each section */
+  margin-top: -60px; /* Negative margin to offset the padding for anchor positioning */
 }
 
 #metadata-section .sample-select-column {
@@ -298,4 +303,116 @@
 .legend-toggle-buttons .btn {
   flex: 1;
   margin: 0 5px;
+}
+
+/* Metro navigation styles */
+.topbar-content {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+#top-navigation {
+  margin-left: 40px;
+}
+
+.metro-navigation {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 6px 0;
+}
+
+.metro-line {
+  display: flex;
+  align-items: center;
+  position: relative;
+  padding: 0 20px;
+}
+
+/* Create the continuous line */
+.metro-line:before {
+  content: '';
+  position: absolute;
+  left: 90px;
+  right: 110px;
+  top: 6px;
+  height: 2px;
+  background-color: #5cb85c;
+  z-index: 1;
+}
+
+.metro-station {
+  margin: 0 25px;
+  position: relative;
+  z-index: 2;
+}
+
+.metro-station-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-decoration: none !important;
+  min-width: 90px;
+}
+
+.metro-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background-color: #555;
+  margin-bottom: 8px;
+  border: 2px solid white;
+  z-index: 3;
+  position: relative;
+}
+
+.metro-label {
+  font-size: 12px;
+  white-space: nowrap;
+  font-weight: 500;
+  color: white;
+  padding: 4px 8px;
+  background-color: #555;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.metro-check {
+  margin-left: 4px;
+  font-weight: bold;
+}
+
+/* Status-based styles with more professional colors */
+.metro-station.disabled .metro-dot {
+  background-color: #999;
+}
+
+.metro-station.disabled .metro-label {
+  background-color: #999;
+  color: #eee;
+  cursor: not-allowed;
+}
+
+.metro-station.completed .metro-dot {
+  background-color: #5cb85c;
+}
+
+.metro-station.completed .metro-label {
+  background-color: #5cb85c;
+}
+
+.metro-station.available .metro-dot {
+  background-color: #444;
+}
+
+.metro-station.available .metro-label {
+  background-color: #444;
+}
+
+/* Adjust the topbar content */
+#topbar {
+  display: flex;
+  align-items: center;
 }

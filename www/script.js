@@ -1,16 +1,25 @@
+// Function to scroll to a specific section with offset for the topbar
 function scrollToSection(sectionId) {
-  const element = document.getElementById(sectionId);
-  const topBar = document.getElementById('topbar');
-  const topBarHeight = topBar.offsetHeight;
-  const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
-  
-  // Add 20px extra padding
-  const offsetPosition = elementPosition - topBarHeight - 20;
-
-  window.scrollTo({
-    top: offsetPosition,
-    behavior: 'smooth'
-  });
+  const section = document.getElementById(sectionId);
+  if (section) {
+    // Get the topbar height to use as offset
+    const topbarHeight = document.getElementById('topbar').offsetHeight;
+    
+    // Calculate the element's position relative to the viewport
+    const sectionRect = section.getBoundingClientRect();
+    
+    // Get the current scroll position
+    const scrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+    
+    // Calculate the target position with offset
+    const targetPosition = scrollPosition + sectionRect.top - topbarHeight - 20; // 20px extra padding
+    
+    // Scroll to the adjusted position
+    window.scrollTo({
+      top: targetPosition,
+      behavior: 'smooth'
+    });
+  }
 }
 
 $(document).on('change', '.condition-management-checkbox', function() {
