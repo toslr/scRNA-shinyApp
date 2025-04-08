@@ -39,6 +39,19 @@ sampleManagementServer <- function(id, seurat_data) {
       temp_labels = NULL  # Add this to store temporary edits
     )
     
+    # Flag to control UI updates
+    inhibit_ui_updates <- reactiveVal(FALSE)
+    
+    # Add debouncing for UI updates to prevent multiple rapid redraws
+    observe({
+      # This will throttle UI updates when typing
+      if (inhibit_ui_updates()) {
+        # If inhibited, don't trigger UI updates for a short time
+        invalidateLater(300) # Wait 300ms before allowing updates again
+        inhibit_ui_updates(FALSE)
+      }
+    })
+    
     # Get samples from Seurat object and initialize state
     observe({
       # Skip if we're in loading state
@@ -83,56 +96,62 @@ sampleManagementServer <- function(id, seurat_data) {
         ))
       }
       
-      # Get current stable values
-      current_labels <- stable_labels()
-      current_active <- stable_active()
-      
-      # Generate UI controls
-      tagList(
-        lapply(state$all_samples, function(sample) {
-          safe_id <- make_safe_id(sample)
-          
-          # Get active status
-          is_active <- if (!is.null(current_active) && sample %in% names(current_active)) {
-            current_active[[sample]]
-          } else {
-            TRUE  # Default to active
-          }
-          
-          # Get current label - Try to get from temp_labels first, then fall back to stable_labels
-          current_label <- if (!is.null(state$temp_labels) && sample %in% names(state$temp_labels)) {
-            state$temp_labels[[sample]]
-          } else if (!is.null(current_labels) && sample %in% names(current_labels)) {
-            current_labels[[sample]]
-          } else {
-            sample  # Default to sample name
-          }
-          
-          div(
-            style = paste0(
-              "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
-              if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
-            ),
-            fluidRow(
-              column(2,
-                     checkboxInput(ns(paste0("active_", safe_id)), 
-                                   label = "",
-                                   value = is_active)
+      # Use isolate here to prevent UI rebuilding during typing
+      isolate({
+        # Get current stable values
+        current_labels <- stable_labels()
+        current_active <- stable_active()
+        current_temp <- state$temp_labels
+        
+        # Generate UI controls
+        tagList(
+          lapply(state$all_samples, function(sample) {
+            safe_id <- make_safe_id(sample)
+            
+            # Get active status
+            is_active <- if (!is.null(current_active) && sample %in% names(current_active)) {
+              current_active[[sample]]
+            } else {
+              TRUE  # Default to active
+            }
+            
+            # Get current label - Try to get from temp_labels first, then fall back to stable_labels
+            current_label <- if (!is.null(current_temp) && sample %in% names(current_temp)) {
+              current_temp[[sample]]
+            } else if (!is.null(current_labels) && sample %in% names(current_labels)) {
+              current_labels[[sample]]
+            } else {
+              sample  # Default to sample name
+            }
+            
+            div(
+              id = paste0("sample-row-", safe_id),
+              style = paste0(
+                "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
+                if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
               ),
-              column(10, 
-                     tags$div(
-                       textInput(ns(paste0("label_", safe_id)),
-                                 label = NULL,
-                                 value = current_label)
-                     )
+              fluidRow(
+                column(2,
+                       checkboxInput(ns(paste0("active_", safe_id)), 
+                                     label = "",
+                                     value = is_active)
+                ),
+                column(10, 
+                       tags$div(
+                         textInput(ns(paste0("label_", safe_id)),
+                                   label = NULL,
+                                   value = current_label,
+                                   width = "100%")
+                       )
+                )
               )
             )
-          )
-        })
-      )
+          })
+        )
+      })
     })
     
-    # Track label changes with dedicated observers
+    # Track label changes with a dedicated observer
     observe({
       req(state$all_samples)
       
@@ -161,13 +180,18 @@ sampleManagementServer <- function(id, seurat_data) {
             state$temp_labels <- list()
           }
           
-          # Store in temp_labels
-          state$temp_labels[[sample]] <- current_value
+          # Store in temp_labels without triggering UI refresh
+          isolate({
+            state$temp_labels[[sample]] <- current_value
+          })
           
-          # Log the change
-          print(paste("Temporary label for sample", sample, "set to", current_value))
+          # Don't update the UI or trigger other reactivity here
+          # Just log the change for debugging
+          isolate({
+            print(paste("Temporary label for sample", sample, "set to", current_value))
+          })
           
-        }, ignoreInit = TRUE)
+        }, ignoreInit = TRUE, ignoreNULL = TRUE)
       })
     })
     
@@ -399,6 +423,9 @@ sampleManagementServer <- function(id, seurat_data) {
       getFullState = getFullState,
       setFullState = setFullState,
       updateFromButton = function() {
+        # Set UI update inhibitor
+        inhibit_ui_updates(TRUE)
+        
         # Only proceed if we have temporary labels to apply
         if (!is.null(state$temp_labels) && length(state$temp_labels) > 0) {
           # Start with current stable labels
@@ -426,7 +453,11 @@ sampleManagementServer <- function(id, seurat_data) {
           showNotification("No label changes to save", type = "message")
         }
       },
-      last_update = reactive({ state$last_update }) # Add this to track updates
+      
+      # Release UI inhibitor after a short delay
+      shinyjs::delay(200, {
+        inhibit_ui_updates(FALSE)
+      })
     )
   })
 }
