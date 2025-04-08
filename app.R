@@ -28,6 +28,7 @@ source("R/modules/metadata_module.R")
 source("R/modules/data_input_module.R")
 source("R/modules/data_input_utils/geo_data_utils.R")
 source("R/modules/data_input_utils/file_format_utils.R")
+source("R/modules/data_input_utils/gene_mapping_utils.R")
 
 # Source qc module
 source("R/modules/qc_module.R")

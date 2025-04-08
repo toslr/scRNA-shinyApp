@@ -12,9 +12,12 @@ dataInputUI <- function(id) {
              strong("Select data directory"),
              shinyDirButton(ns("dir"), "Select Data Directory", "Choose directory"),
              verbatimTextOutput(ns("dirpath")),
+             div(style = "margin-top: 10px;",
+                 uiOutput(ns("speciesUI"))
+             ),
              actionButton(ns("processData"), "Read Data"),
              div(style = "margin-top: 10px; color: #666;",
-                 "Supported formats: .txt.gz, .h5")
+                 "Supported formats: .txt.gz, .h5, 10X MTX")
       )
     ),
     fluidRow(
@@ -28,19 +31,31 @@ dataInputUI <- function(id) {
   )
 }
 
-#' @title Data Input Module Server
-#' @description Server logic for the data input module which loads and processes 
-#'   scRNA-seq data files into Seurat objects.
-#' @param id The module ID
-#' @param volumes Volumes configuration for directory selection, defaults to Home desktop
-#' @param metadata_module Metadata module instance to access selected samples and annotations
-#' @return A reactive expression containing the processed Seurat object
-#' @export
 dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), metadata_module) {
   moduleServer(id, function(input, output, session) {
     # Create reactive values
     seurat_obj <- reactiveVal(NULL)
     processing_status <- reactiveVal("")
+    species <- reactiveVal("auto")  # Default to auto detection
+    
+    # Add UI for species selection
+    output$speciesUI <- renderUI({
+      ns <- session$ns
+      selectInput(ns("species"), "Species:",
+                  choices = c("Auto-detect" = "auto",
+                              "Human (Homo sapiens)" = "human",
+                              "Mouse (Mus musculus)" = "mouse",
+                              "Rat (Rattus norvegicus)" = "rat",
+                              "Zebrafish (Danio rerio)" = "zebrafish",
+                              "Fruit fly (D. melanogaster)" = "fly",
+                              "C. elegans" = "worm"),
+                  selected = "auto")
+    })
+    
+    # Update species when input changes
+    observeEvent(input$species, {
+      species(input$species)
+    })
     
     # Directory selection
     shinyDirChoose(input, 'dir', roots = volumes, session = session)
@@ -65,16 +80,32 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
       req(metadata_module$selectedSamples())
       
       selected_samples <- metadata_module$selectedSamples()
+      selected_species <- species()
       
       withProgress(message = 'Reading data...', value = 0, {
         tryCatch({
-          # Get ENSEMBL to name mapping
-          incProgress(0.1, detail = "Reading gene name conversion")
-          processing_status("Reading gene name conversion")
-          gene_conversion <- read.csv("gene_conversion_results.csv")
+          # Get or create gene name mapping based on selected species
+          incProgress(0.1, detail = "Setting up gene name conversion")
+          processing_status("Setting up gene name conversion")
           
-          gene_mapping <- setNames(gene_conversion$external_gene_name, 
-                                   gene_conversion$ensembl_gene_id)
+          # Use the gene mapping utility function
+          if (selected_species == "auto" || selected_species == "") {
+            # First try to use the existing gene mapping file
+            if (file.exists("gene_conversion_results.csv")) {
+              gene_conversion <- read.csv("gene_conversion_results.csv")
+              gene_mapping <- setNames(gene_conversion$external_gene_name, 
+                                       gene_conversion$ensembl_gene_id)
+              processing_status("Using existing gene mapping file")
+            } else {
+              # Default to mouse if no specific species
+              gene_mapping <- get_gene_mapping("mouse")
+              processing_status("Using default mouse gene mapping")
+            }
+          } else {
+            # Use species-specific mapping
+            gene_mapping <- get_gene_mapping(selected_species)
+            processing_status(paste("Using", selected_species, "gene mapping"))
+          }
           
           # Get all available files
           processing_status("Looking for files in the selected directory")
@@ -126,6 +157,7 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           # Initialize list for all Seurat objects
           seurat_objects <- list()
           count = 0
+          detected_species <- NULL
           
           # Process each file
           for(file in selected_files) {
@@ -143,6 +175,15 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
               seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
               seurat$sample <- gsm
               
+              # Detect species if auto mode
+              if (selected_species == "auto" && is.null(detected_species)) {
+                processing_status("Auto-detecting species from gene IDs...")
+                detected_species <- detect_species(seurat)
+                processing_status(paste("Detected species:", detected_species))
+                # Update selected species
+                selected_species <- detected_species
+              }
+              
               # Add GEO metadata if available
               meta_func <- metadata_module$getMetadata
               if (!is.null(meta_func)) {
@@ -155,8 +196,11 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
                 }
               }
               
-              # Calculate mitochondrial percentage
-              seurat <- Calculate_MT_Percent(seurat)
+              # Add species information
+              seurat$species <- selected_species
+              
+              # Calculate mitochondrial percentage with species info
+              seurat <- Calculate_MT_Percent(seurat, species = selected_species)
               
               seurat@misc$gene_mapping <- gene_mapping
               seurat_objects[[gsm]] <- seurat
@@ -169,10 +213,14 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           if(length(seurat_objects) > 1) {
             processing_status("Merging multiple Seurat objects")
             gene_mapping_to_preserve <- seurat_objects[[1]]@misc$gene_mapping
+            species_to_preserve <- seurat_objects[[1]]$species[1]
+            
             final_seurat <- merge(seurat_objects[[1]], 
                                   y = seurat_objects[2:length(seurat_objects)],
                                   add.cell.ids = names(seurat_objects))
+            
             final_seurat@misc$gene_mapping <- gene_mapping_to_preserve
+            final_seurat$species <- species_to_preserve
           } else if(length(seurat_objects) == 1) {
             processing_status("Using single Seurat object")
             final_seurat <- seurat_objects[[1]]
@@ -195,7 +243,8 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
     # Return reactive value and processing status
     return(list(
       data = seurat_obj,
-      status = processing_status
+      status = processing_status,
+      species = species
     ))
   })
 }

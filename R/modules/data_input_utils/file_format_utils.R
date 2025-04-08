@@ -229,86 +229,166 @@ Detect_File_Format_Type <- function(dir_path, file_name) {
   return("unknown")
 }
 
-#' @title Calculate Mitochondrial Percentage for Seurat Object
-#' @description Identifies mitochondrial genes and calculates percentage for a Seurat object
-#' @param seurat_obj Seurat object
-#' @return The Seurat object with percent.mt column added
-#' @export
-Calculate_MT_Percent <- function(seurat_obj) {
+Calculate_MT_Percent <- function(seurat_obj, species = NULL) {
   # Get gene names
   gene_names <- rownames(seurat_obj)
   
-  # Check for presence of common MT gene patterns
-  has_human_mt <- any(grepl("^MT-", gene_names))
-  has_mouse_mt <- any(grepl("^(mt-|MT-)", gene_names))
-  has_ensembl_mt <- any(grepl("^ENSMUSG00000064", gene_names))
-  has_generic_mt <- any(grepl("^[Mm][Tt]-|^[Mm][Tt]:|^[Mm]ito", gene_names))
+  # Detect species if not provided
+  if (is.null(species)) {
+    # Try to detect from metadata or project name
+    if ("organism" %in% colnames(seurat_obj@meta.data)) {
+      detected_species <- tolower(seurat_obj$organism[1])
+      print(paste("Detected species from metadata:", detected_species))
+      species <- detected_species
+    } else {
+      # Default to auto-detection
+      species <- "auto"
+    }
+  }
   
-  print(paste("Has human MT genes:", has_human_mt))
-  print(paste("Has mouse MT genes:", has_mouse_mt))
-  print(paste("Has Ensembl MT genes:", has_ensembl_mt))
-  print(paste("Has generic MT pattern:", has_generic_mt))
+  # Define species-specific MT patterns
+  mt_patterns <- list(
+    human = list(
+      pattern = "^MT-",
+      name = "Human (Homo sapiens)"
+    ),
+    mouse = list(
+      patterns = c("^mt-", "^MT-", "^ENSMUSG00000064"),  # Include both patterns for mouse
+      name = "Mouse (Mus musculus)"
+    ),
+    rat = list(
+      pattern = "^(Mt-|MT-|RNO)",
+      name = "Rat (Rattus norvegicus)"
+    ),
+    zebrafish = list(
+      pattern = "^(mt-|MT-)",
+      name = "Zebrafish (Danio rerio)"
+    ),
+    fly = list(
+      pattern = "^mt:|^mt-",
+      name = "Fruit Fly (Drosophila melanogaster)"
+    ),
+    worm = list(
+      pattern = "^MTCE",
+      name = "C. elegans"
+    ),
+    auto = list(
+      patterns = c("^MT-", "^mt-", "^Mt-", "^mt:", "^MTCE", "^ENSMUSG00000064"),
+      name = "Auto-detection"
+    )
+  )
   
-  # Try different patterns
+  print(paste("Using pattern for species:", ifelse(is.null(species), "auto", species)))
+  
+  # Initialize flag
   mt_found <- FALSE
   
-  if (has_human_mt) {
-    print("Using human MT- pattern")
-    tryCatch({
-      seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^MT-")
-      mt_found <- TRUE
-    }, error = function(e) {
-      print(paste("Error calculating MT percentage with human pattern:", e$message))
-    })
-  } 
-  
-  if (!mt_found && has_mouse_mt) {
-    # Instead of using ignore.case parameter, use a case-insensitive regex with both options
-    print("Using mouse mt- pattern")
-    tryCatch({
-      seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^(mt-|MT-)")
-      mt_found <- TRUE
-    }, error = function(e) {
-      print(paste("Error calculating MT percentage with mouse pattern:", e$message))
-    })
+  # Special handling for mouse to ensure both patterns are tried
+  if (species == "mouse") {
+    # Try each mouse pattern separately
+    for (pattern in mt_patterns$mouse$patterns) {
+      print(paste("Trying mouse pattern:", pattern))
+      if (any(grepl(pattern, gene_names))) {
+        print(paste("Found matches with pattern:", pattern))
+        tryCatch({
+          seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = pattern)
+          
+          # Verify we got non-zero values
+          if (all(seurat_obj$percent.mt == 0)) {
+            print("Warning: All MT percentages are zero. Trying next pattern.")
+          } else {
+            print(paste("Successfully calculated MT percentage with pattern:", pattern))
+            mt_found <- TRUE
+            break
+          }
+        }, error = function(e) {
+          print(paste("Error with pattern", pattern, ":", e$message))
+        })
+      }
+    }
+  } else if (species == "auto") {
+    # Handle auto-detection mode - try all patterns
+    for (pattern in mt_patterns$auto$patterns) {
+      print(paste("Trying pattern:", pattern))
+      if (any(grepl(pattern, gene_names))) {
+        print(paste("Found matches with pattern:", pattern))
+        tryCatch({
+          seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = pattern)
+          
+          # Check if we got non-zero values
+          if (all(seurat_obj$percent.mt == 0)) {
+            print("Warning: All MT percentages are zero. Trying next pattern.")
+          } else {
+            print(paste("Successfully calculated MT percentage with pattern:", pattern))
+            mt_found <- TRUE
+            break
+          }
+        }, error = function(e) {
+          print(paste("Error with pattern", pattern, ":", e$message))
+        })
+      }
+    }
+  } else if (species %in% names(mt_patterns)) {
+    # Use species-specific pattern(s)
+    if (is.list(mt_patterns[[species]]) && "patterns" %in% names(mt_patterns[[species]])) {
+      # Multiple patterns
+      for (pattern in mt_patterns[[species]]$patterns) {
+        print(paste("Trying pattern:", pattern))
+        tryCatch({
+          seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = pattern)
+          
+          # Check if we got non-zero values
+          if (all(seurat_obj$percent.mt == 0)) {
+            print("Warning: All MT percentages are zero. Trying next pattern.")
+          } else {
+            print(paste("Successfully calculated MT percentage with pattern:", pattern))
+            mt_found <- TRUE
+            break
+          }
+        }, error = function(e) {
+          print(paste("Error with pattern", pattern, ":", e$message))
+        })
+      }
+    } else {
+      # Single pattern
+      pattern <- mt_patterns[[species]]$pattern
+      print(paste("Using species-specific pattern:", pattern))
+      
+      tryCatch({
+        seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = pattern)
+        if (!all(seurat_obj$percent.mt == 0)) {
+          print(paste("Successfully calculated MT percentage for", mt_patterns[[species]]$name))
+          mt_found <- TRUE
+        } else {
+          print("Warning: All MT percentages are zero.")
+        }
+      }, error = function(e) {
+        print(paste("Error calculating MT percentage for", species, ":", e$message))
+      })
+    }
   }
   
-  if (!mt_found && has_ensembl_mt) {
-    print("Using Ensembl mitochondrial pattern")
-    tryCatch({
-      seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^ENSMUSG00000064")
-      mt_found <- TRUE
-    }, error = function(e) {
-      print(paste("Error calculating MT percentage with Ensembl pattern:", e$message))
-    })
-  }
-  
-  if (!mt_found && has_generic_mt) {
-    print("Using generic mitochondrial pattern")
-    tryCatch({
-      seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^[Mm][Tt]-|^[Mm][Tt]:|^[Mm]ito")
-      mt_found <- TRUE
-    }, error = function(e) {
-      print(paste("Error calculating MT percentage with generic pattern:", e$message))
-    })
-  }
-  
+  # Fallback to general pattern matching if specific patterns didn't work
   if (!mt_found) {
     # Look for any MT-related feature
-    mt_patterns <- c("MT", "Mt", "mt", "Mito", "mito")
+    generic_patterns <- c("MT", "Mt", "mt", "Mito", "mito")
     
-    for (pattern in mt_patterns) {
-      # For case-insensitive search, we can use grepl directly
+    for (pattern in generic_patterns) {
+      # For case-insensitive search
       mt_indices <- grep(pattern, gene_names, ignore.case = TRUE)
       if (length(mt_indices) > 0) {
         matching_features <- gene_names[mt_indices]
-        print(paste("Found", length(matching_features), "mitochondrial genes using pattern:", pattern))
+        print(paste("Found", length(matching_features), "potential mitochondrial genes using pattern:", pattern))
         print(paste("Example matches:", paste(head(matching_features, 3), collapse=", ")))
         
         tryCatch({
           seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, features = matching_features)
-          mt_found <- TRUE
-          break
+          if (!all(seurat_obj$percent.mt == 0)) {
+            mt_found <- TRUE
+            break
+          } else {
+            print("Warning: All MT percentages are zero with this pattern.")
+          }
         }, error = function(e) {
           print(paste("Error calculating MT percentage with features:", e$message))
         })
@@ -316,6 +396,7 @@ Calculate_MT_Percent <- function(seurat_obj) {
     }
   }
   
+  # If still no MT genes found, set to 0
   if (!mt_found) {
     print("No mitochondrial genes identified. Setting percent.mt to 0.")
     seurat_obj[["percent.mt"]] <- 0

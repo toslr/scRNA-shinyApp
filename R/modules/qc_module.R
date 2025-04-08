@@ -7,6 +7,9 @@
 qcUI <- function(id) {
   ns <- NS(id)
   tagList(
+    # Species-specific QC suggestions
+    uiOutput(ns("qcSuggestions")),
+    
     # Container for plots
     div(class = "qc-plots",
         div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
@@ -196,7 +199,65 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       qc_plot()
     })
     
-    # The rest of your code remains the same...
+    output$qcSuggestions <- renderUI({
+      req(seurat_data())
+      
+      # Try to get species information
+      species <- NULL
+      tryCatch({
+        if ("species" %in% colnames(seurat_data()@meta.data)) {
+          species <- seurat_data()$species[1]
+        }
+      }, error = function(e) {
+        # Species info not available
+      })
+      
+      # Default suggestions
+      default_min_feature <- 500
+      default_max_feature <- 5000
+      default_max_mt <- 5
+      
+      # Species-specific suggestions
+      if (!is.null(species)) {
+        if (species == "human") {
+          default_min_feature <- 500
+          default_max_feature <- 6000
+          default_max_mt <- 10
+        } else if (species == "mouse") {
+          default_min_feature <- 500
+          default_max_feature <- 5000
+          default_max_mt <- 5
+        } else if (species == "zebrafish") {
+          default_min_feature <- 300
+          default_max_feature <- 3000
+          default_max_mt <- 8
+        } else if (species == "fly") {
+          default_min_feature <- 300
+          default_max_feature <- 3000
+          default_max_mt <- 10
+        }
+      }
+      
+      # Update values reactiveValue
+      values$min_feature <- default_min_feature
+      values$max_feature <- default_max_feature
+      values$max_mt <- default_max_mt
+      
+      # Only show suggestions if we detected a species
+      if (!is.null(species) && species != "auto") {
+        div(
+          class = "alert alert-info",
+          icon("info-circle"),
+          paste("QC suggestions for", species, "data:"),
+          tags$ul(
+            tags$li(paste("Min Features:", default_min_feature)),
+            tags$li(paste("Max Features:", default_max_feature)),
+            tags$li(paste("Max MT%:", default_max_mt))
+          ),
+          "These are general guidelines - adjust based on your specific dataset."
+        )
+      }
+    })
     
     # Download handler for the QC plot
     output$downloadQCPlot <- downloadHandler(
@@ -251,6 +312,7 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
         cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
         if (any(cells_to_keep)) {
           filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          sample_info <- paste0(" from ", length(values$filtered_samples), " samples")
         } else {
           showNotification("No cells match the active sample selection. Cannot process data.", 
                            type = "error")
@@ -267,6 +329,7 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
         cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
         if (any(cells_to_keep)) {
           filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          condition_info <- paste0(" in ", length(values$filtered_conditions), " conditions")
         } else {
           showNotification("No cells match the active condition selection. Cannot process data.", 
                            type = "error")
@@ -274,9 +337,9 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
         }
       }
       
-      # Set the status message
+      # Set the status message - now with total cell count
       values$qc_status_message <- paste0(
-        "Processing QC with ", ncol(filtered_seurat), " cells", 
+        "Processing QC with ", ncol(filtered_seurat), " total cells", 
         sample_info, condition_info, "; ", filter_summary
       )
       
@@ -288,13 +351,14 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
         input$maxMT
       )
       
-      # Update status message with results
+      # Update status message with results - now with total cell counts
       num_cells_after <- ncol(values$filtered_data)
       cells_filtered <- num_cells_before - num_cells_after
+      percent_retained <- round(num_cells_after/num_cells_before * 100, 1)
+      
       values$qc_status_message <- paste0(
-        "QC complete - Retained ", num_cells_after, " cells (", 
-        round(num_cells_after/num_cells_before * 100, 1), 
-        "%). Filtered out ", cells_filtered, " cells.", 
+        "QC complete - Retained ", num_cells_after, "/", num_cells_before, " cells (",
+        percent_retained, "%). Filtered out ", cells_filtered, " cells.", 
         sample_info, condition_info, "; ", filter_summary
       )
     })
