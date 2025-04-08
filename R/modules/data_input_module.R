@@ -167,12 +167,23 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
             incProgress(0.9/(length(selected_files)+1), 
                         detail = paste("Reading file", count, "of", length(selected_files)))
             
+            # Read the data file
             data <- Read_Data_File(selected_dir(), file)
             
             if(length(data) > 0 && !is.null(data[[1]])) {
               gsm <- file_to_gsm[[file]]
               processing_status(paste("Creating Seurat object for sample", gsm))
+              
+              # Create a Seurat object with proper cell naming to avoid conflicts
+              # Add GSM prefix to cell names to ensure uniqueness across samples
+              cell_names <- colnames(data[[1]])
+              new_cell_names <- paste0(gsm, "_", cell_names)
+              colnames(data[[1]]) <- new_cell_names
+              
+              # Create Seurat object with the modified cell names
               seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
+              
+              # Add sample identifier
               seurat$sample <- gsm
               
               # Detect species if auto mode
@@ -204,6 +215,11 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
               
               seurat@misc$gene_mapping <- gene_mapping
               seurat_objects[[gsm]] <- seurat
+              
+              processing_status(paste("Successfully created Seurat object for", gsm,
+                                      "with", ncol(seurat), "cells and", nrow(seurat), "genes"))
+            } else {
+              processing_status(paste("Warning: No data found for", file))
             }
           }
           
@@ -212,15 +228,32 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           # If multiple objects, merge them
           if(length(seurat_objects) > 1) {
             processing_status("Merging multiple Seurat objects")
+            
+            # Preserve important information from first object
             gene_mapping_to_preserve <- seurat_objects[[1]]@misc$gene_mapping
             species_to_preserve <- seurat_objects[[1]]$species[1]
             
-            final_seurat <- merge(seurat_objects[[1]], 
-                                  y = seurat_objects[2:length(seurat_objects)],
-                                  add.cell.ids = names(seurat_objects))
+            # Get object names for adding cell IDs
+            object_names <- names(seurat_objects)
             
+            # Note: cell names already have GSM prefixes, so we don't need add.cell.ids
+            # Using merge with proper checking to avoid cell name conflicts
+            final_seurat <- merge(
+              x = seurat_objects[[1]],
+              y = seurat_objects[2:length(seurat_objects)],
+              add.cell.ids = NULL, # Cell IDs already have GSM prefixes
+              project = "merged_samples"
+            )
+            
+            # Restore preserved information
             final_seurat@misc$gene_mapping <- gene_mapping_to_preserve
             final_seurat$species <- species_to_preserve
+            
+            processing_status(paste("Successfully merged", length(seurat_objects), 
+                                    "samples into one Seurat object with", 
+                                    ncol(final_seurat), "cells and",
+                                    nrow(final_seurat), "genes"))
+            
           } else if(length(seurat_objects) == 1) {
             processing_status("Using single Seurat object")
             final_seurat <- seurat_objects[[1]]
@@ -234,8 +267,10 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           seurat_obj(final_seurat)
           
         }, error = function(e) {
+          # Print complete error message for debugging
+          print(e)
           processing_status(paste("Error in data processing:", e$message))
-          showNotification(paste("Error in data processing:", e$message), type = "error")
+          showNotification(paste("Error in data processing:", e$message), type = "error", duration = NULL)
         })
       })
     })
