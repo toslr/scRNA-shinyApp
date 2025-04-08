@@ -42,6 +42,19 @@ clusterManagementServer <- function(id, clustered_seurat) {
       last_update = NULL
     )
     
+    # Flag to control UI updates
+    inhibit_ui_updates <- reactiveVal(FALSE)
+    
+    # Add debouncing for UI updates to prevent multiple rapid redraws
+    observe({
+      # This will throttle UI updates when typing
+      if (inhibit_ui_updates()) {
+        # If inhibited, don't trigger UI updates for a short time
+        invalidateLater(300) # Wait 300ms before allowing updates again
+        inhibit_ui_updates(FALSE)
+      }
+    })
+    
     # When clusters are initially loaded or change, initialize the stable labels
     observe({
       # Skip if we're in loading state
@@ -96,53 +109,59 @@ clusterManagementServer <- function(id, clustered_seurat) {
         ))
       }
       
-      # Get the current stable labels - this is crucial for UI stability
-      current_labels <- stable_labels()
-      
-      # Generate UI controls
-      tagList(
-        lapply(state$all_clusters, function(cluster) {
-          cluster_key <- as.character(cluster)
-          
-          # First check if active
-          is_active <- if (!is.null(state$active_clusters) && cluster_key %in% names(state$active_clusters)) {
-            state$active_clusters[[cluster_key]]
-          } else {
-            TRUE  # Default to active
-          }
-          
-          # Get label value to display - use temp label if available, otherwise stable label
-          display_value <- if (!is.null(state$temp_labels) && cluster_key %in% names(state$temp_labels)) {
-            state$temp_labels[[cluster_key]]
-          } else if (!is.null(current_labels) && cluster_key %in% names(current_labels)) {
-            current_labels[[cluster_key]]
-          } else {
-            paste("Cluster", cluster)
-          }
-          
-          div(
-            id = paste0("cluster-row-", cluster_key),
-            style = paste0(
-              "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
-              if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
-            ),
-            fluidRow(
-              column(2,
-                     checkboxInput(ns(paste0("active_", cluster)), 
-                                   label = paste("", cluster),
-                                   value = is_active)
+      # Use isolate here to prevent UI rebuilding during typing
+      isolate({
+        # Get the current stable labels - this is crucial for UI stability
+        current_labels <- stable_labels()
+        current_active <- state$active_clusters
+        current_temp <- state$temp_labels
+        
+        # Generate UI controls
+        tagList(
+          lapply(state$all_clusters, function(cluster) {
+            cluster_key <- as.character(cluster)
+            
+            # First check if active
+            is_active <- if (!is.null(current_active) && cluster_key %in% names(current_active)) {
+              current_active[[cluster_key]]
+            } else {
+              TRUE  # Default to active
+            }
+            
+            # Get label value to display - use temp label if available, otherwise stable label
+            display_value <- if (!is.null(current_temp) && cluster_key %in% names(current_temp)) {
+              current_temp[[cluster_key]]
+            } else if (!is.null(current_labels) && cluster_key %in% names(current_labels)) {
+              current_labels[[cluster_key]]
+            } else {
+              paste("Cluster", cluster)
+            }
+            
+            div(
+              id = paste0("cluster-row-", cluster_key),
+              style = paste0(
+                "margin-bottom: 10px; padding: 8px; border-radius: 4px; ",
+                if (is_active) "background-color: #f8f9fa;" else "background-color: #e9ecef; opacity: 0.8;"
               ),
-              column(10, 
-                     tags$div(
-                       textInput(ns(paste0("label_", cluster)),
-                                 label = NULL,
-                                 value = display_value)
-                     )
+              fluidRow(
+                column(2,
+                       checkboxInput(ns(paste0("active_", cluster)), 
+                                     label = paste("", cluster),
+                                     value = is_active)
+                ),
+                column(10, 
+                       tags$div(
+                         textInput(ns(paste0("label_", cluster)),
+                                   label = NULL,
+                                   value = display_value,
+                                   width = "100%")
+                       )
+                )
               )
             )
-          )
-        })
-      )
+          })
+        )
+      })
     })
     
     # Add a reactive value for temporary edits
@@ -169,16 +188,20 @@ clusterManagementServer <- function(id, clustered_seurat) {
             return(NULL)
           }
           
-          # Store the input value in a state variable instead of updating labels directly
-          # This way we collect changes but don't trigger UI updates
-          if (is.null(state$temp_labels)) {
-            state$temp_labels <- list()
-          }
+          # Store the input value in a state variable without triggering UI updates
+          isolate({
+            if (is.null(state$temp_labels)) {
+              state$temp_labels <- list()
+            }
+            
+            # Update the temporary value
+            state$temp_labels[[cluster_key]] <- input[[input_id]]
+            
+            # Print for debugging
+            print(paste("Temp label for cluster", cluster_key, "set to:", input[[input_id]]))
+          })
           
-          # Update the temporary value
-          state$temp_labels[[cluster_key]] <- input[[input_id]]
-          
-        }, ignoreInit = TRUE)
+        }, ignoreInit = TRUE, ignoreNULL = TRUE)
       })
     })
     
