@@ -414,30 +414,63 @@ createQCPlot <- function(seurat_obj) {
     "sample"
   }
   
-  # Create plots individually for more control
-  # nFeature plot
-  p1 <- VlnPlot(seurat_obj, features = "nFeature_RNA", group.by = group_var, pt.size = 0.1) +
-    theme(legend.position = "none") +
-    ggtitle("Number of Features")
+  # Create plots for metrics we know exist
+  plot_list <- list()
   
-  # nCount plot
-  p2 <- VlnPlot(seurat_obj, features = "nCount_RNA", group.by = group_var, pt.size = 0.1) +
-    theme(legend.position = "none") +
-    ggtitle("Number of UMIs")
-  
-  # percent.mt plot - only if it exists
-  if ("percent.mt" %in% colnames(seurat_obj@meta.data)) {
-    p3 <- VlnPlot(seurat_obj, features = "percent.mt", group.by = group_var, pt.size = 0.1) +
-      ggtitle("Mitochondrial %")
-    
-    # Combine all three plots
-    p_combined <- patchwork::wrap_plots(list(p1, p2, p3), ncol = 3)
-  } else {
-    # Just combine the two plots if percent.mt is missing
-    p_combined <- patchwork::wrap_plots(list(p1, p2), ncol = 2)
+  # nFeature plot (should always exist)
+  if ("nFeature_RNA" %in% colnames(seurat_obj@meta.data)) {
+    p1 <- VlnPlot(seurat_obj, features = "nFeature_RNA", group.by = group_var, pt.size = 0.1) +
+      theme(legend.position = "none") +
+      ggtitle("Number of Features")
+    plot_list[["nFeature"]] <- p1
   }
   
-  return(p_combined)
+  # nCount plot (should always exist)
+  if ("nCount_RNA" %in% colnames(seurat_obj@meta.data)) {
+    p2 <- VlnPlot(seurat_obj, features = "nCount_RNA", group.by = group_var, pt.size = 0.1) +
+      theme(legend.position = "none") +
+      ggtitle("Number of UMIs")
+    plot_list[["nCount"]] <- p2
+  }
+  
+  # percent.mt plot - check if it exists and has valid values
+  if ("percent.mt" %in% colnames(seurat_obj@meta.data)) {
+    # Check if percent.mt contains NA values
+    has_na <- any(is.na(seurat_obj$percent.mt))
+    if (has_na) {
+      print("Warning: NA values found in percent.mt column, filling with 0")
+      seurat_obj$percent.mt[is.na(seurat_obj$percent.mt)] <- 0
+    }
+    
+    # Also check for infinite values
+    has_inf <- any(is.infinite(seurat_obj$percent.mt))
+    if (has_inf) {
+      print("Warning: Infinite values found in percent.mt column, filling with 0")
+      seurat_obj$percent.mt[is.infinite(seurat_obj$percent.mt)] <- 0
+    }
+    
+    # Create the plot
+    p3 <- VlnPlot(seurat_obj, features = "percent.mt", group.by = group_var, pt.size = 0.1) +
+      theme(legend.position = "none") +
+      ggtitle("Mitochondrial %")
+    plot_list[["percent.mt"]] <- p3
+  }
+  
+  # Combine the plots
+  if (length(plot_list) == 0) {
+    # Return an empty plot with message if no plots created
+    return(ggplot() + 
+             annotate("text", x = 0.5, y = 0.5, 
+                      label = "No QC metrics available to plot") + 
+             theme_void())
+  } else if (length(plot_list) == 1) {
+    # Return the single plot
+    return(plot_list[[1]])
+  } else {
+    # Combine multiple plots
+    p_combined <- patchwork::wrap_plots(plot_list, ncol = length(plot_list))
+    return(p_combined)
+  }
 }
 
 #' @title Save QC Plot

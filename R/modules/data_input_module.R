@@ -83,12 +83,36 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           # Only process selected GSMs
           selected_files <- character(0)
           file_to_gsm <- list()
+          file_formats <- list()
+          
           for(gsm in selected_samples) {
-            pattern <- paste0("^", gsm)
-            matches <- grep(pattern, all_files, value=TRUE)
-            selected_files <- c(selected_files, matches)
-            for(match in matches) {
-              file_to_gsm[[match]] <- gsm
+            processing_status(paste("Detecting file format for", gsm))
+            
+            # Determine file format type
+            format_type <- Detect_File_Format_Type(selected_dir(), gsm)
+            
+            if (format_type == "unknown") {
+              processing_status(paste("Warning: No supported files found for", gsm))
+              next
+            }
+            
+            processing_status(paste("Found", format_type, "format for", gsm))
+            
+            if (format_type == "txt.gz") {
+              # For text files, find matching files
+              pattern <- paste0("^", gsm)
+              matches <- grep(pattern, all_files, value=TRUE)
+              
+              for(match in matches) {
+                selected_files <- c(selected_files, match)
+                file_to_gsm[[match]] <- gsm
+                file_formats[[match]] <- format_type
+              }
+            } else {
+              # For H5 or MTX formats, just use the GSM ID
+              selected_files <- c(selected_files, gsm)
+              file_to_gsm[[gsm]] <- gsm
+              file_formats[[gsm]] <- format_type
             }
           }
           
@@ -106,13 +130,10 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
           # Process each file
           for(file in selected_files) {
             count = count + 1
-            processing_status(paste("Reading file", count, "of", length(selected_files), ":", file))
+            format_type <- file_formats[[file]]
+            processing_status(paste("Reading file", count, "of", length(selected_files), ":", file, "(", format_type, "format)"))
             incProgress(0.9/(length(selected_files)+1), 
                         detail = paste("Reading file", count, "of", length(selected_files)))
-            
-            # Determine file format and read accordingly
-            file_format <- Detect_File_Format(file)
-            processing_status(paste("Detected file format:", file_format))
             
             data <- Read_Data_File(selected_dir(), file)
             

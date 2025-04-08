@@ -19,6 +19,7 @@ library(RColorBrewer)
 library(fontawesome)
 library(ggpubr)
 library(hdf5r)
+library(Matrix)
 
 # Source metadata module
 source("R/modules/metadata_module.R")

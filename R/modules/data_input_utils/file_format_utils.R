@@ -39,20 +39,194 @@ Detect_File_Format <- function(file_name) {
 #' @title Read Data File
 #' @description Reads a data file based on its format
 #' @param data_dir Directory containing the data file
-#' @param file_name Name of the file
+#' @param file_name Name of the file or GSM ID
 #' @return A list containing a sparse matrix of counts
 #' @export
 Read_Data_File <- function(data_dir, file_name) {
-  file_path <- file.path(data_dir, file_name)
-  file_format <- Detect_File_Format(file_name)
+  # Determine file format type
+  format_type <- Detect_File_Format_Type(data_dir, file_name)
+  print(paste("Detected file format:", format_type, "for", file_name))
   
-  if (file_format == "txt.gz") {
+  if (format_type == "h5") {
+    # For H5 files
+    h5_files <- list.files(data_dir, pattern = paste0("^", file_name, ".*\\.h5$"), full.names = TRUE)
+    if (length(h5_files) > 0) {
+      return(Read_10X_H5(h5_files[1]))
+    } else {
+      stop(paste("No H5 files found for", file_name))
+    }
+  } else if (format_type == "mtx") {
+    # For 10X MTX format
+    mtx_files <- Detect_10X_MTX_Format(data_dir, file_name)
+    if (!is.null(mtx_files)) {
+      return(Read_10X_MTX_Format(mtx_files))
+    } else {
+      stop(paste("MTX format files not found correctly for", file_name))
+    }
+  } else if (format_type == "txt.gz") {
+    # For GEO text format
     return(Read_GEO_Delim(data_dir, file_name))
-  } else if (file_format == "h5") {
-    return(Read_10X_H5(file_path))
   } else {
     stop(paste("Unsupported file format for file:", file_name))
   }
+}
+
+#' @title Detect 10X MTX Format
+#' @description Detects if a set of files represents a 10X Genomics MTX format dataset
+#' @param dir_path Directory to check
+#' @param gsm_id GSM ID to look for
+#' @return A list of file paths if format is found, NULL otherwise
+#' @export
+Detect_10X_MTX_Format <- function(dir_path, gsm_id) {
+  # Check if directory exists
+  if (!dir.exists(dir_path)) {
+    print(paste("Directory does not exist:", dir_path))
+    return(NULL)
+  }
+  
+  # List all files in the directory
+  all_files <- list.files(dir_path, full.names = FALSE)
+  print(paste("Files in directory:", paste(all_files, collapse=", ")))
+  
+  # Look for the triplet of files needed for 10X MTX format
+  base_pattern <- paste0("^", gsm_id, ".*")
+  print(paste("Looking for pattern:", base_pattern))
+  
+  # Check for the three required files
+  barcode_files <- list.files(dir_path, pattern = paste0(base_pattern, "barcodes\\.tsv\\.gz$"), full.names = TRUE)
+  features_files <- list.files(dir_path, pattern = paste0(base_pattern, "genes\\.tsv\\.gz$|", base_pattern, "features\\.tsv\\.gz$"), full.names = TRUE)
+  matrix_files <- list.files(dir_path, pattern = paste0(base_pattern, "matrix\\.mtx\\.gz$"), full.names = TRUE)
+  
+  print(paste("Found barcode files:", paste(barcode_files, collapse=", ")))
+  print(paste("Found feature/gene files:", paste(features_files, collapse=", ")))
+  print(paste("Found matrix files:", paste(matrix_files, collapse=", ")))
+  
+  # If we found all three files, return their paths
+  if (length(barcode_files) > 0 && length(features_files) > 0 && length(matrix_files) > 0) {
+    return(list(
+      barcodes = barcode_files[1],
+      features = features_files[1],
+      matrix = matrix_files[1]
+    ))
+  }
+  
+  # If we didn't find all files, return NULL
+  print("Did not find all three required files for 10X MTX format")
+  return(NULL)
+}
+
+#' @title Read 10X MTX Format
+#' @description Reads 10X Genomics MTX format files into a sparse matrix
+#' @param file_paths List of file paths for barcodes, features/genes, and matrix
+#' @return A list containing a sparse matrix of counts
+#' @export
+Read_10X_MTX_Format <- function(file_paths) {
+  print(paste("Reading 10X MTX format files from:", 
+              paste(unlist(file_paths), collapse=", ")))
+  
+  # Create a temporary directory
+  temp_dir <- file.path(tempdir(), "temp_10x_data")
+  if (dir.exists(temp_dir)) {
+    unlink(temp_dir, recursive = TRUE)  # Remove old temp dir if it exists
+  }
+  dir.create(temp_dir, recursive = TRUE)
+  print(paste("Created temporary directory:", temp_dir))
+  
+  # Copy files with standardized names
+  file.copy(file_paths$barcodes, file.path(temp_dir, "barcodes.tsv.gz"))
+  
+  # Decide whether to use "features.tsv.gz" or "genes.tsv.gz" based on original name
+  features_file <- basename(file_paths$features)
+  if (grepl("features", features_file)) {
+    file.copy(file_paths$features, file.path(temp_dir, "features.tsv.gz"))
+  } else {
+    file.copy(file_paths$features, file.path(temp_dir, "genes.tsv.gz"))
+  }
+  
+  file.copy(file_paths$matrix, file.path(temp_dir, "matrix.mtx.gz"))
+  
+  # List files in temp dir to confirm
+  temp_files <- list.files(temp_dir)
+  print(paste("Files in temporary directory:", paste(temp_files, collapse=", ")))
+  
+  # Try to read the data
+  tryCatch({
+    counts <- Seurat::Read10X(data.dir = temp_dir)
+    print("Successfully read 10X MTX data")
+    print(paste("Matrix dimensions:", nrow(counts), "x", ncol(counts)))
+    return(list(counts))
+  }, error = function(e) {
+    print(paste("Error reading 10X MTX data:", e$message))
+    print("Attempting to use Seurat::ReadMtx directly...")
+    
+    # Try using ReadMtx directly
+    mtx_file <- file.path(temp_dir, "matrix.mtx.gz")
+    features_file <- if ("features.tsv.gz" %in% temp_files) {
+      file.path(temp_dir, "features.tsv.gz")
+    } else {
+      file.path(temp_dir, "genes.tsv.gz")
+    }
+    barcode_file <- file.path(temp_dir, "barcodes.tsv.gz")
+    
+    counts <- Seurat::ReadMtx(
+      mtx = mtx_file,
+      features = features_file,
+      cells = barcode_file
+    )
+    
+    print("Successfully read 10X MTX data using ReadMtx")
+    print(paste("Matrix dimensions:", nrow(counts), "x", ncol(counts)))
+    return(list(counts))
+  })
+}
+
+#' @title Detect File Format Type
+#' @description Determines what type of scRNA-seq file format is being used
+#' @param dir_path Directory path
+#' @param file_name Filename or GSM ID to examine
+#' @return A character string describing the format type: "h5", "mtx", "txt.gz", or "unknown"
+#' @export
+Detect_File_Format_Type <- function(dir_path, file_name) {
+  print(paste("Detecting file format for:", file_name, "in directory:", dir_path))
+  
+  # Check if it's a direct file that exists
+  full_path <- file.path(dir_path, file_name)
+  if (file.exists(full_path)) {
+    if (grepl("\\.h5$", file_name)) {
+      return("h5")
+    } else if (grepl("\\.txt\\.gz$", file_name)) {
+      return("txt.gz")
+    }
+  }
+  
+  # For GSM IDs, we need to check if any matching files exist
+  # First check for 10X MTX format - this should be first since it's more specific
+  print(paste("Checking for 10X MTX format files for GSM ID:", file_name))
+  mtx_files <- Detect_10X_MTX_Format(dir_path, file_name)
+  if (!is.null(mtx_files)) {
+    print("10X MTX format detected")
+    return("mtx")
+  }
+  
+  # If not found as MTX, check for H5 files
+  print("Checking for H5 files")
+  h5_files <- list.files(dir_path, pattern = paste0("^", file_name, ".*\\.h5$"), full.names = FALSE)
+  if (length(h5_files) > 0) {
+    print(paste("H5 file found:", h5_files[1]))
+    return("h5")
+  }
+  
+  # Finally check for txt.gz files
+  print("Checking for txt.gz files")
+  txt_files <- list.files(dir_path, pattern = paste0("^", file_name, ".*\\.txt\\.gz$"), full.names = FALSE)
+  if (length(txt_files) > 0) {
+    print(paste("txt.gz file found:", txt_files[1]))
+    return("txt.gz")
+  }
+  
+  # If we couldn't determine the format
+  print("No supported format detected")
+  return("unknown")
 }
 
 #' @title Calculate Mitochondrial Percentage for Seurat Object
@@ -66,7 +240,7 @@ Calculate_MT_Percent <- function(seurat_obj) {
   
   # Check for presence of common MT gene patterns
   has_human_mt <- any(grepl("^MT-", gene_names))
-  has_mouse_mt <- any(grepl("^mt-", gene_names, ignore.case = TRUE))
+  has_mouse_mt <- any(grepl("^(mt-|MT-)", gene_names))
   has_ensembl_mt <- any(grepl("^ENSMUSG00000064", gene_names))
   has_generic_mt <- any(grepl("^[Mm][Tt]-|^[Mm][Tt]:|^[Mm]ito", gene_names))
   
@@ -76,23 +250,52 @@ Calculate_MT_Percent <- function(seurat_obj) {
   print(paste("Has generic MT pattern:", has_generic_mt))
   
   # Try different patterns
+  mt_found <- FALSE
+  
   if (has_human_mt) {
     print("Using human MT- pattern")
-    seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^MT-")
-  } else if (has_mouse_mt) {
+    tryCatch({
+      seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^MT-")
+      mt_found <- TRUE
+    }, error = function(e) {
+      print(paste("Error calculating MT percentage with human pattern:", e$message))
+    })
+  } 
+  
+  if (!mt_found && has_mouse_mt) {
     # Instead of using ignore.case parameter, use a case-insensitive regex with both options
     print("Using mouse mt- pattern")
-    seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^(mt-|MT-)")
-  } else if (has_ensembl_mt) {
+    tryCatch({
+      seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^(mt-|MT-)")
+      mt_found <- TRUE
+    }, error = function(e) {
+      print(paste("Error calculating MT percentage with mouse pattern:", e$message))
+    })
+  }
+  
+  if (!mt_found && has_ensembl_mt) {
     print("Using Ensembl mitochondrial pattern")
-    seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^ENSMUSG00000064")
-  } else if (has_generic_mt) {
+    tryCatch({
+      seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^ENSMUSG00000064")
+      mt_found <- TRUE
+    }, error = function(e) {
+      print(paste("Error calculating MT percentage with Ensembl pattern:", e$message))
+    })
+  }
+  
+  if (!mt_found && has_generic_mt) {
     print("Using generic mitochondrial pattern")
-    seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^[Mm][Tt]-|^[Mm][Tt]:|^[Mm]ito")
-  } else {
+    tryCatch({
+      seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^[Mm][Tt]-|^[Mm][Tt]:|^[Mm]ito")
+      mt_found <- TRUE
+    }, error = function(e) {
+      print(paste("Error calculating MT percentage with generic pattern:", e$message))
+    })
+  }
+  
+  if (!mt_found) {
     # Look for any MT-related feature
     mt_patterns <- c("MT", "Mt", "mt", "Mito", "mito")
-    found_pattern <- FALSE
     
     for (pattern in mt_patterns) {
       # For case-insensitive search, we can use grepl directly
@@ -101,20 +304,44 @@ Calculate_MT_Percent <- function(seurat_obj) {
         matching_features <- gene_names[mt_indices]
         print(paste("Found", length(matching_features), "mitochondrial genes using pattern:", pattern))
         print(paste("Example matches:", paste(head(matching_features, 3), collapse=", ")))
-        seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, features = matching_features)
-        found_pattern <- TRUE
-        break
+        
+        tryCatch({
+          seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, features = matching_features)
+          mt_found <- TRUE
+          break
+        }, error = function(e) {
+          print(paste("Error calculating MT percentage with features:", e$message))
+        })
       }
-    }
-    
-    if (!found_pattern) {
-      print("No mitochondrial genes identified. Setting percent.mt to 0.")
-      seurat_obj[["percent.mt"]] <- 0
     }
   }
   
-  # Check the range of percent.mt values
-  print(paste("Range of percent.mt:", min(seurat_obj$percent.mt), "to", max(seurat_obj$percent.mt)))
+  if (!mt_found) {
+    print("No mitochondrial genes identified. Setting percent.mt to 0.")
+    seurat_obj[["percent.mt"]] <- 0
+  }
+  
+  # Ensure no NA or infinite values
+  if ("percent.mt" %in% colnames(seurat_obj@meta.data)) {
+    # Check for NA or infinite values
+    na_count <- sum(is.na(seurat_obj$percent.mt))
+    inf_count <- sum(is.infinite(seurat_obj$percent.mt))
+    
+    if (na_count > 0) {
+      print(paste("Found", na_count, "NA values in percent.mt. Replacing with 0."))
+      seurat_obj$percent.mt[is.na(seurat_obj$percent.mt)] <- 0
+    }
+    
+    if (inf_count > 0) {
+      print(paste("Found", inf_count, "infinite values in percent.mt. Replacing with 0."))
+      seurat_obj$percent.mt[is.infinite(seurat_obj$percent.mt)] <- 0
+    }
+    
+    # Check the range of percent.mt values
+    print(paste("Range of percent.mt:", min(seurat_obj$percent.mt), "to", max(seurat_obj$percent.mt)))
+  } else {
+    print("Warning: percent.mt column was not created successfully")
+  }
   
   return(seurat_obj)
 }
