@@ -213,6 +213,7 @@ setupReactiveState <- function() {
     # Heatmap state
     heatmap_data = reactiveVal(NULL),
     heatmap_type = reactiveVal(NULL),
+    heatmap_status_message = NULL,
     
     # DE analysis state
     de_genes = reactiveVal(NULL),
@@ -1658,6 +1659,16 @@ runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_clu
           )
         }
         
+        # Prepare cell count info
+        num_cells <- ncol(seurat_obj)
+        
+        # Set initial status message
+        state$heatmap_status_message <- paste0(
+          "Computing general heatmap with ", length(active_clusters_num), 
+          " clusters, ", num_cells, " cells, and ", 
+          genes_per_cluster, " top genes per cluster"
+        )
+        
         for (i in seq_along(active_clusters_num)) {
           cluster <- active_clusters_num[i]
           
@@ -1714,6 +1725,14 @@ runGeneralHeatmapAnalysis <- function(seurat_obj, active_clusters, genes_per_clu
         # Store genes for heatmap
         state$general_heatmap_genes(gene_order)
         state$heatmap_type("general")
+        
+        # At the end, update the status message with the results
+        state$heatmap_status_message <- paste0(
+          "Generated heatmap with ", length(active_clusters_num), 
+          " clusters, ", num_cells, " cells, and ", 
+          length(gene_order), " unique top genes. Using ", 
+          genes_per_cluster, " genes per cluster."
+        )
         
         incProgress(1.0, detail = "Completed")
       }, error = function(e) {
@@ -1952,14 +1971,42 @@ renderGeneralHeatmapUI <- function(ns, state, active_cluster_list) {
                           "condition_heatmap" = "Condition Comparison Heatmap",
                           "General Heatmap")
   
-  tagList(
+  # Get status message - properly handle either a reactive or regular variable
+  status_message <- NULL
+  if (!is.null(state$heatmap_status_message)) {
+    if (is.reactive(state$heatmap_status_message)) {
+      status_message <- state$heatmap_status_message()
+    } else {
+      status_message <- state$heatmap_status_message
+    }
+  }
+  
+  # Creating UI elements
+  ui_elements <- list(
     div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
         h3(style = "margin: 0;", heatmap_title),
         downloadButton(ns("downloadGeneralHeatmapPlot"), "Save Plot", 
                        class = "btn-sm btn-success")
-    ),
-    plotOutput(ns("generalHeatmapPlot"), height = "800px")
+    )
   )
+  
+  # Add status message if available
+  if (!is.null(status_message)) {
+    ui_elements <- c(ui_elements, 
+                     list(div(
+                       class = "alert alert-info",
+                       style = "margin-top: 10px; margin-bottom: 10px;",
+                       icon("info-circle"),
+                       HTML(status_message)
+                     )))
+  }
+  
+  # Add plot
+  ui_elements <- c(ui_elements, 
+                   list(plotOutput(ns("generalHeatmapPlot"), height = "800px")))
+  
+  # Return as tagList
+  do.call(tagList, ui_elements)
 }
 
 #' @title Setup Heatmap Download Handlers

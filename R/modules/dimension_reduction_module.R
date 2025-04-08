@@ -36,8 +36,14 @@ dimensionReductionUI <- function(id) {
       )
     ),
     
+    # Add message output for dimension reduction status
+    uiOutput(ns("dimredStatusMessage")),
+    
     # Clustering controls (shown after dimensions are confirmed)
     uiOutput(ns("clusteringSection")),
+    
+    # Add message output for clustering status
+    uiOutput(ns("clusteringStatusMessage")),
     
     # UMAP visualization section (shown after clustering)
     uiOutput(ns("umapSection"))
@@ -77,6 +83,33 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       condition_labels = NULL,
       cluster_labels = NULL,
     )
+    
+    # Reactive values for status messages
+    values$dimred_status_message <- NULL
+    values$clustering_status_message <- NULL
+    
+    # Render the status messages
+    output$dimredStatusMessage <- renderUI({
+      if (!is.null(values$dimred_status_message)) {
+        div(
+          class = "alert alert-info",
+          style = "margin-top: 10px; margin-bottom: 10px;",
+          icon("info-circle"),
+          values$dimred_status_message
+        )
+      }
+    })
+    
+    output$clusteringStatusMessage <- renderUI({
+      if (!is.null(values$clustering_status_message)) {
+        div(
+          class = "alert alert-info",
+          style = "margin-top: 10px; margin-bottom: 10px;",
+          icon("info-circle"),
+          values$clustering_status_message
+        )
+      }
+    })
     
     # Method to restore state from loaded data
     restoreState <- function(n_dims, dims_confirmed) {
@@ -290,6 +323,40 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       # Update state
       values$dims_confirmed <- TRUE
       
+      # Prepare status message
+      filtered_obj <- processed_seurat()
+      num_cells <- ncol(filtered_obj)
+      
+      # Get sample information
+      sample_info <- ""
+      if (!is.null(sample_management) && is.function(sample_management$getActiveSampleIds)) {
+        active_samples <- sample_management$getActiveSampleIds()
+        if (!is.null(active_samples) && length(active_samples) > 0) {
+          sample_info <- paste0("; Samples: ", length(active_samples), " selected")
+        }
+      }
+      
+      # Get condition information
+      condition_info <- ""
+      if (!is.null(condition_management) && 
+          is.function(condition_management$getConditionColumn) && 
+          is.function(condition_management$getActiveConditions)) {
+        
+        condition_column <- condition_management$getConditionColumn()
+        active_conditions <- condition_management$getActiveConditions()
+        
+        if (!is.null(condition_column) && !is.null(active_conditions) && length(active_conditions) > 0) {
+          condition_info <- paste0("; ", condition_column, ": ", length(active_conditions), " selected")
+        }
+      }
+      
+      # Set the status message
+      values$dimred_status_message <- paste0(
+        "Computing UMAP with ", input$nDims, 
+        " dimensions using ", num_cells, " cells", 
+        sample_info, condition_info
+      )
+      
       # Pre-compute UMAPs for both 2D and 3D
       withProgress(message = 'Computing UMAPs...', {
         # Start with the original seurat object
@@ -358,6 +425,41 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
     # Run clustering
     observeEvent(input$runClustering, {
       req(values$seurat_with_umap, input$nDims, input$resolution)
+      
+      # Prepare status message
+      filtered_obj <- values$seurat_with_umap
+      num_cells <- ncol(filtered_obj)
+      
+      # Get sample information
+      sample_info <- ""
+      if (!is.null(sample_management) && is.function(sample_management$getActiveSampleIds)) {
+        active_samples <- sample_management$getActiveSampleIds()
+        if (!is.null(active_samples) && length(active_samples) > 0) {
+          sample_info <- paste0("; Samples: ", length(active_samples), " selected")
+        }
+      }
+      
+      # Get condition information
+      condition_info <- ""
+      if (!is.null(condition_management) && 
+          is.function(condition_management$getConditionColumn) && 
+          is.function(condition_management$getActiveConditions)) {
+        
+        condition_column <- condition_management$getConditionColumn()
+        active_conditions <- condition_management$getActiveConditions()
+        
+        if (!is.null(condition_column) && !is.null(active_conditions) && length(active_conditions) > 0) {
+          condition_info <- paste0("; ", condition_column, ": ", length(active_conditions), " selected")
+        }
+      }
+      
+      # Set the status message
+      values$clustering_status_message <- paste0(
+        "Clustering with resolution = ", input$resolution, 
+        "; PCs used: ", input$nDims, 
+        "; Cells: ", num_cells, 
+        sample_info, condition_info
+      )
       
       withProgress(message = 'Clustering...', {
         # Run clustering

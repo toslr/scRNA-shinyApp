@@ -16,10 +16,14 @@ qcUI <- function(id) {
         ),
         plotOutput(ns("qcPlot"), height = "600px")
     ),
+    
     # Container for controls
     div(class = "qc-controls",
         uiOutput(ns("filterControls"))
-    )
+    ),
+    
+    # Add QC status message
+    uiOutput(ns("qcStatusMessage"))
   )
 }
 
@@ -46,6 +50,21 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       max_mt = 5,
       sample_labels = NULL  # Add this to track sample labels
     )
+    
+    # Add this near the beginning of the function
+    values$qc_status_message <- NULL
+    
+    # Render the QC status message
+    output$qcStatusMessage <- renderUI({
+      if (!is.null(values$qc_status_message)) {
+        div(
+          class = "alert alert-info",
+          style = "margin-top: 10px; margin-bottom: 10px;",
+          icon("info-circle"),
+          values$qc_status_message
+        )
+      }
+    })
     
     # Watch for changes in sample management active status
     observe({
@@ -202,6 +221,14 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       
       # Create a filtered Seurat object
       filtered_seurat <- seurat_data()
+      num_cells_before <- ncol(filtered_seurat)
+      
+      # Prepare message components
+      sample_info <- ""
+      condition_info <- ""
+      filter_summary <- paste0("QC thresholds - Min features: ", input$minFeature, 
+                               ", Max features: ", input$maxFeature, 
+                               ", Max MT%: ", input$maxMT)
       
       # Apply sample filtering if available
       if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
@@ -232,6 +259,12 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
         }
       }
       
+      # Set the status message
+      values$qc_status_message <- paste0(
+        "Processing QC with ", ncol(filtered_seurat), " cells", 
+        sample_info, condition_info, "; ", filter_summary
+      )
+      
       # Now process the filtered Seurat object
       values$filtered_data <- processQCFiltering(
         filtered_seurat, 
@@ -240,9 +273,15 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
         input$maxMT
       )
       
-      # Show notification of success
-      showNotification("Data processed successfully with active sample/condition selections.", 
-                       type = "message")
+      # Update status message with results
+      num_cells_after <- ncol(values$filtered_data)
+      cells_filtered <- num_cells_before - num_cells_after
+      values$qc_status_message <- paste0(
+        "QC complete - Retained ", num_cells_after, " cells (", 
+        round(num_cells_after/num_cells_before * 100, 1), 
+        "%). Filtered out ", cells_filtered, " cells.", 
+        sample_info, condition_info, "; ", filter_summary
+      )
     })
     
     # Return the processed data
