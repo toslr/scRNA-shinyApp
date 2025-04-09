@@ -28,6 +28,10 @@ sampleManagementServer <- function(id, seurat_data) {
     is_loading_state <- reactiveVal(FALSE)
     ignore_input_changes <- reactiveVal(FALSE)
     
+    # Add flags to control update flow and prevent cascades
+    updating_from_checkbox <- reactiveVal(FALSE)
+    updating_select_all <- reactiveVal(FALSE)
+    
     # Use dedicated reactiveVals for stable storage
     stable_labels <- reactiveVal(list())
     stable_active <- reactiveVal(list())
@@ -51,6 +55,16 @@ sampleManagementServer <- function(id, seurat_data) {
         inhibit_ui_updates(FALSE)
       }
     })
+    
+    # Create a deep copy of a list
+    deep_copy <- function(list_obj) {
+      if (is.null(list_obj)) return(list())
+      result <- list()
+      for (name in names(list_obj)) {
+        result[[name]] <- list_obj[[name]]
+      }
+      return(result)
+    }
     
     # Get samples from Seurat object and initialize state
     observe({
@@ -103,8 +117,9 @@ sampleManagementServer <- function(id, seurat_data) {
         current_active <- stable_active()
         current_temp <- state$temp_labels
         
-        # Generate UI controls
-        tagList(
+        # Generate UI controls - NO SELECT ALL BUTTON HERE
+        div(
+          style = "max-height: 400px; overflow-y: auto; border: 1px solid #e3e3e3; padding: 5px; border-radius: 4px;",
           lapply(state$all_samples, function(sample) {
             safe_id <- make_safe_id(sample)
             
@@ -132,9 +147,21 @@ sampleManagementServer <- function(id, seurat_data) {
               ),
               fluidRow(
                 column(2,
-                       checkboxInput(ns(paste0("active_", safe_id)), 
-                                     label = "",
-                                     value = is_active)
+                       tags$div(
+                         style = "margin-top: 5px;",
+                         tags$div(
+                           class = "checkbox",
+                           tags$label(
+                             tags$input(
+                               type = "checkbox",
+                               id = ns(paste0("active_", safe_id)),
+                               checked = if(is_active) "checked" else NULL,
+                               class = "sample-management-checkbox",
+                               `data-gsm` = sample  # Add data attribute for sample ID
+                             )
+                           )
+                         )
+                       )
                 ),
                 column(10, 
                        tags$div(
@@ -195,84 +222,99 @@ sampleManagementServer <- function(id, seurat_data) {
       })
     })
     
-    # Handle Select All checkbox
+    # Add JavaScript handler for individual checkboxes
+    session$sendCustomMessage(type = "initializeSampleCheckboxes", message = list())
+    
+    # Handle selectAllSamples checkbox
     observeEvent(input$selectAllSamples, {
+      # Skip if we're already updating from a checkbox change
+      if (updating_from_checkbox()) {
+        return(NULL)
+      }
+      
       # Skip if in loading state
       if (ignore_input_changes()) {
         return(NULL)
       }
       
-      req(state$all_samples)
+      # Mark that we're updating from Select All
+      updating_select_all(TRUE)
       
-      # Create a new active status list
+      req(state$all_samples)
+      available_samples <- state$all_samples
+      
+      # Create a new active_samples list
       new_active <- setNames(
-        rep(input$selectAllSamples, length(state$all_samples)),
-        state$all_samples
+        rep(input$selectAllSamples, length(available_samples)),
+        available_samples
       )
       
-      # Update stable active status
-      stable_active(new_active)
+      # Block individual checkbox observers
+      ignore_input_changes(TRUE)
       
-      # Update individual checkboxes
-      for (sample in state$all_samples) {
-        safe_id <- make_safe_id(sample)
-        updateCheckboxInput(session, paste0("active_", safe_id), value = input$selectAllSamples)
-      }
+      # Update stable storage with our copy
+      stable_active(deep_copy(new_active))
       
-      state$last_update <- Sys.time()
-    })
+      # Update individual checkboxes using JavaScript
+      selected_samples <- if(input$selectAllSamples) available_samples else character(0)
+      session$sendCustomMessage(
+        type = "updateSampleCheckboxes",
+        message = list(samples = selected_samples)
+      )
+      
+      # Now it's safe to allow changes - slight delay to ensure UI updates first
+      shinyjs::delay(200, {
+        ignore_input_changes(FALSE)
+        updating_select_all(FALSE)
+        
+        # Trigger state update
+        state$last_update <- Sys.time()
+      })
+    }, ignoreInit = TRUE, priority = 10)  # Higher priority
     
-    # Handle individual sample activation
-    observe({
-      # Skip if in loading state
-      if (ignore_input_changes()) {
+    # Handler for individual sample checkbox updates from JavaScript
+    observeEvent(input$sample_checkbox_changed, {
+      # Skip if in loading state or during Select All update
+      if (ignore_input_changes() || updating_select_all()) {
         return(NULL)
       }
       
-      req(state$all_samples)
+      # Extract the sample ID and checked state from the input
+      sample_id <- input$sample_checkbox_changed$sample
+      is_checked <- input$sample_checkbox_changed$checked
       
-      # Setup observers for each sample's checkbox
-      lapply(state$all_samples, function(sample) {
-        safe_id <- make_safe_id(sample)
-        input_id <- paste0("active_", safe_id)
+      # Mark that we're updating from a checkbox
+      updating_from_checkbox(TRUE)
+      
+      # Get current active status - create a complete copy to avoid reference issues
+      current_active <- deep_copy(stable_active())
+      
+      # Get previous value with default
+      old_value <- if (!is.null(current_active) && sample_id %in% names(current_active)) {
+        current_active[[sample_id]]
+      } else {
+        TRUE
+      }
+      
+      # Check if value actually changed
+      if (old_value != is_checked) {
+        # Update our deep copy with the new value
+        current_active[[sample_id]] <- is_checked
         
-        # Create observer for this specific input
-        observeEvent(input[[input_id]], {
-          # Skip if in loading state
-          if (ignore_input_changes()) {
-            return(NULL)
-          }
-          
-          # Get current active status
-          current_active <- stable_active()
-          
-          # Get previous value
-          old_value <- if (!is.null(current_active) && sample %in% names(current_active)) {
-            current_active[[sample]]
-          } else {
-            TRUE
-          }
-          
-          # Only update if changed
-          if (old_value != input[[input_id]]) {
-            # Create new copy
-            new_active <- current_active
-            new_active[[sample]] <- input[[input_id]]
-            
-            # Update stable storage
-            stable_active(new_active)
-            
-            # Log change
-            print(paste("Sample", sample, "active status changed from", 
-                        old_value, "to", input[[input_id]]))
-            
-            # Update "Select All" checkbox
-            all_active <- all(unlist(new_active))
-            updateCheckboxInput(session, "selectAllSamples", value = all_active)
-            
-            state$last_update <- Sys.time()
-          }
-        }, ignoreInit = TRUE)
+        # Update stable active status
+        stable_active(current_active)
+        
+        # Update "Select All" checkbox state
+        all_active <- all(unlist(current_active))
+        updateCheckboxInput(session, "selectAllSamples", value = all_active)
+        
+        # Signal update
+        state$last_update <- Sys.time()
+      }
+      
+      # Clear updating flag after a delay
+      shinyjs::delay(100, {
+        updating_from_checkbox(FALSE)
       })
     })
     
@@ -371,13 +413,13 @@ sampleManagementServer <- function(id, seurat_data) {
               }
             }
             
-            # Update checkboxes
+            # Update checkboxes using JavaScript for better consistency
             if (!is.null(saved_state$active_samples)) {
-              for (sample in names(saved_state$active_samples)) {
-                safe_id <- make_safe_id(sample)
-                updateCheckboxInput(session, paste0("active_", safe_id), 
-                                    value = saved_state$active_samples[[sample]])
-              }
+              active_samples <- names(saved_state$active_samples[unlist(saved_state$active_samples) == TRUE])
+              session$sendCustomMessage(
+                type = "updateSampleCheckboxes",
+                message = list(samples = active_samples)
+              )
               
               # Update "Select All" checkbox
               all_active <- all(unlist(saved_state$active_samples))
@@ -419,6 +461,13 @@ sampleManagementServer <- function(id, seurat_data) {
       },
       updateActiveStatus = function(new_active) {
         stable_active(new_active)
+        
+        # Update UI to reflect the new active status
+        active_samples <- names(new_active[unlist(new_active) == TRUE])
+        session$sendCustomMessage(
+          type = "updateSampleCheckboxes",
+          message = list(samples = active_samples)
+        )
       },
       getFullState = getFullState,
       setFullState = setFullState,
@@ -452,12 +501,12 @@ sampleManagementServer <- function(id, seurat_data) {
         } else {
           showNotification("No label changes to save", type = "message")
         }
-      },
-      
-      # Release UI inhibitor after a short delay
-      shinyjs::delay(200, {
-        inhibit_ui_updates(FALSE)
-      })
+        
+        # Release UI inhibitor after a short delay
+        shinyjs::delay(200, {
+          inhibit_ui_updates(FALSE)
+        })
+      }
     )
   })
 }

@@ -24,9 +24,13 @@ clusterManagementServer <- function(id, clustered_seurat) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Add a loading lock to prevent competing updates
+    # Add loading locks to prevent competing updates
     is_loading_state <- reactiveVal(FALSE)
     ignore_input_changes <- reactiveVal(FALSE)
+    
+    # Add flags to control update flow and prevent cascades
+    updating_from_checkbox <- reactiveVal(FALSE)
+    updating_select_all <- reactiveVal(FALSE)
     
     # Use a dedicated reactiveVal for stable label storage
     # This is crucial to prevent flickering
@@ -54,6 +58,16 @@ clusterManagementServer <- function(id, clustered_seurat) {
         inhibit_ui_updates(FALSE)
       }
     })
+    
+    # Create a deep copy of a list
+    deep_copy <- function(list_obj) {
+      if (is.null(list_obj)) return(list())
+      result <- list()
+      for (name in names(list_obj)) {
+        result[[name]] <- list_obj[[name]]
+      }
+      return(result)
+    }
     
     # When clusters are initially loaded or change, initialize the stable labels
     observe({
@@ -99,6 +113,9 @@ clusterManagementServer <- function(id, clustered_seurat) {
       }
     })
     
+    # Add JavaScript handler for individual checkboxes
+    session$sendCustomMessage(type = "initializeClusterCheckboxes", message = list())
+    
     # Setup UI for cluster rows
     output$clusterRows <- renderUI({
       # Skip if no clusters
@@ -116,8 +133,9 @@ clusterManagementServer <- function(id, clustered_seurat) {
         current_active <- state$active_clusters
         current_temp <- state$temp_labels
         
-        # Generate UI controls
-        tagList(
+        # Generate UI controls - no select all button here
+        div(
+          style = "max-height: 400px; overflow-y: auto; border: 1px solid #e3e3e3; padding: 5px; border-radius: 4px;",
           lapply(state$all_clusters, function(cluster) {
             cluster_key <- as.character(cluster)
             
@@ -145,9 +163,21 @@ clusterManagementServer <- function(id, clustered_seurat) {
               ),
               fluidRow(
                 column(2,
-                       checkboxInput(ns(paste0("active_", cluster)), 
-                                     label = paste("", cluster),
-                                     value = is_active)
+                       tags$div(
+                         style = "margin-top: 5px;",
+                         tags$div(
+                           class = "checkbox",
+                           tags$label(
+                             tags$input(
+                               type = "checkbox",
+                               id = ns(paste0("active_", cluster)),
+                               checked = if(is_active) "checked" else NULL,
+                               class = "cluster-management-checkbox",
+                               `data-cluster` = cluster  # Add data attribute for cluster ID
+                             )
+                           )
+                         )
+                       )
                 ),
                 column(10, 
                        tags$div(
@@ -163,9 +193,6 @@ clusterManagementServer <- function(id, clustered_seurat) {
         )
       })
     })
-    
-    # Add a reactive value for temporary edits
-    temp_labels <- reactiveVal(list())
     
     # Track label changes with a dedicated observer
     observe({
@@ -207,10 +234,18 @@ clusterManagementServer <- function(id, clustered_seurat) {
     
     # Handle Select All checkbox
     observeEvent(input$selectAllClusters, {
+      # Skip if we're already updating from a checkbox change
+      if (updating_from_checkbox()) {
+        return(NULL)
+      }
+      
       # Skip if in loading state
       if (ignore_input_changes()) {
         return(NULL)
       }
+      
+      # Mark that we're updating from Select All
+      updating_select_all(TRUE)
       
       req(state$all_clusters)
       
@@ -220,63 +255,73 @@ clusterManagementServer <- function(id, clustered_seurat) {
         as.character(state$all_clusters)
       )
       
+      # Block individual checkbox observers
+      ignore_input_changes(TRUE)
+      
       # Update state
       state$active_clusters <- new_active
       
-      # Update individual checkboxes to match
-      for (cluster in state$all_clusters) {
-        updateCheckboxInput(session, paste0("active_", cluster), value = input$selectAllClusters)
-      }
+      # Update individual checkboxes using JavaScript
+      selected_clusters <- if(input$selectAllClusters) as.character(state$all_clusters) else character(0)
+      session$sendCustomMessage(
+        type = "updateClusterCheckboxes",
+        message = list(clusters = selected_clusters)
+      )
       
-      state$last_update <- Sys.time()
-    })
+      # Now it's safe to allow changes - slight delay to ensure UI updates first
+      shinyjs::delay(200, {
+        ignore_input_changes(FALSE)
+        updating_select_all(FALSE)
+        
+        # Trigger state update
+        state$last_update <- Sys.time()
+      })
+    }, ignoreInit = TRUE, priority = 10)  # Higher priority
     
-    # Handle individual cluster activation
-    observe({
-      # Skip observer if we're loading a state
-      if (ignore_input_changes()) {
+    # Handler for individual cluster checkbox updates from JavaScript
+    observeEvent(input$cluster_checkbox_changed, {
+      # Skip if in loading state or during Select All update
+      if (ignore_input_changes() || updating_select_all()) {
         return(NULL)
       }
       
-      req(state$all_clusters)
+      # Extract the cluster ID and checked state from the input
+      cluster_id <- input$cluster_checkbox_changed$cluster
+      is_checked <- input$cluster_checkbox_changed$checked
       
-      for (cluster in state$all_clusters) {
-        local({
-          local_cluster <- cluster
-          cluster_key <- as.character(local_cluster)
-          input_id <- paste0("active_", local_cluster)
-          
-          if (!is.null(input[[input_id]])) {
-            observeEvent(input[[input_id]], {
-              # Skip if we're in loading state
-              if (ignore_input_changes()) {
-                return(NULL)
-              }
-              
-              # Get current value before updating
-              old_value <- FALSE
-              if (!is.null(state$active_clusters) && cluster_key %in% names(state$active_clusters)) {
-                old_value <- state$active_clusters[[cluster_key]]
-              }
-              
-              # Only update and log if the value actually changed
-              if (old_value != input[[input_id]]) {
-                # Update active status for this cluster
-                state$active_clusters[[cluster_key]] <- input[[input_id]]
-                
-                print(paste("Cluster", cluster_key, "active status changed from", 
-                            old_value, "to", input[[input_id]]))
-                
-                # Update "Select All" checkbox
-                all_active <- all(unlist(state$active_clusters))
-                updateCheckboxInput(session, "selectAllClusters", value = all_active)
-                
-                state$last_update <- Sys.time()
-              }
-            }, ignoreInit = TRUE)
-          }
-        })
+      # Mark that we're updating from a checkbox
+      updating_from_checkbox(TRUE)
+      
+      # Get current active status - create a complete copy to avoid reference issues
+      current_active <- deep_copy(state$active_clusters)
+      
+      # Get previous value with default
+      old_value <- if (!is.null(current_active) && cluster_id %in% names(current_active)) {
+        current_active[[cluster_id]]
+      } else {
+        TRUE
       }
+      
+      # Check if value actually changed
+      if (old_value != is_checked) {
+        # Update our deep copy with the new value
+        current_active[[cluster_id]] <- is_checked
+        
+        # Update stable active status
+        state$active_clusters <- current_active
+        
+        # Update "Select All" checkbox state
+        all_active <- all(unlist(current_active))
+        updateCheckboxInput(session, "selectAllClusters", value = all_active)
+        
+        # Signal update
+        state$last_update <- Sys.time()
+      }
+      
+      # Clear updating flag after a delay
+      shinyjs::delay(100, {
+        updating_from_checkbox(FALSE)
+      })
     })
     
     # Update labels when the update button is clicked
@@ -386,12 +431,13 @@ clusterManagementServer <- function(id, clustered_seurat) {
               }
             }
             
-            # Update checkboxes
+            # Update checkboxes using JavaScript for better consistency
             if (!is.null(saved_state$active_clusters)) {
-              for (cluster_key in names(saved_state$active_clusters)) {
-                is_active <- saved_state$active_clusters[[cluster_key]]
-                updateCheckboxInput(session, paste0("active_", cluster_key), value = is_active)
-              }
+              active_clusters <- names(saved_state$active_clusters[unlist(saved_state$active_clusters) == TRUE])
+              session$sendCustomMessage(
+                type = "updateClusterCheckboxes",
+                message = list(clusters = active_clusters)
+              )
               
               # Update "Select All" checkbox
               all_active <- all(unlist(saved_state$active_clusters))
@@ -436,6 +482,13 @@ clusterManagementServer <- function(id, clustered_seurat) {
       },
       updateActiveStatus = function(new_active) {
         state$active_clusters <- new_active
+        
+        # Update UI to reflect the new active status
+        active_clusters <- names(new_active[unlist(new_active) == TRUE])
+        session$sendCustomMessage(
+          type = "updateClusterCheckboxes",
+          message = list(clusters = active_clusters)
+        )
       },
       last_update = reactive({ state$last_update }),
       getFullState = getFullState,

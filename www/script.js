@@ -22,6 +22,47 @@ function scrollToSection(sectionId) {
   }
 }
 
+// Initialize event listeners for sample checkboxes
+$(document).on('change', '.sample-management-checkbox', function() {
+  // Get the checkbox state
+  var isChecked = $(this).prop('checked');
+  
+  // Get the sample ID from the data attribute
+  var sampleId = $(this).attr('data-gsm');
+  if (!sampleId) {
+    // Fall back to extracting from ID if data attribute not set
+    var inputId = $(this).attr('id');
+    sampleId = inputId.replace('sampleManagement-active_', '');
+  }
+  
+  // Send the update to Shiny
+  Shiny.setInputValue('sampleManagement-sample_checkbox_changed', {
+    sample: sampleId,
+    checked: isChecked
+  });
+});
+
+// Initialize event listeners for cluster checkboxes
+$(document).on('change', '.cluster-management-checkbox', function() {
+  // Get the checkbox state
+  var isChecked = $(this).prop('checked');
+  
+  // Get the cluster ID from the data attribute
+  var clusterId = $(this).attr('data-cluster');
+  if (!clusterId) {
+    // Fall back to extracting from ID if data attribute not set
+    var inputId = $(this).attr('id');
+    clusterId = inputId.replace('clusterManagement-active_', '');
+  }
+  
+  // Send the update to Shiny
+  Shiny.setInputValue('clusterManagement-cluster_checkbox_changed', {
+    cluster: clusterId,
+    checked: isChecked
+  });
+});
+
+// Initialize event listeners for condition checkboxes
 $(document).on('change', '.condition-management-checkbox', function() {
   // Get the checkbox state
   var isChecked = $(this).prop('checked');
@@ -64,15 +105,29 @@ $(document).ready(function() {
     }
   };
   
-  // Monitor for new condition checkboxes being added to the DOM
+  // Monitor for new checkboxes being added to the DOM
   const observer = new MutationObserver(function(mutations) {
     mutations.forEach(function(mutation) {
       if (mutation.addedNodes && mutation.addedNodes.length > 0) {
         // Check if any condition checkboxes were added
-        const checkboxes = $(mutation.addedNodes).find('input[id^="conditionManagement-active_"]');
-        if (checkboxes.length > 0) {
+        const conditionCheckboxes = $(mutation.addedNodes).find('input[id^="conditionManagement-active_"]');
+        if (conditionCheckboxes.length > 0) {
           // Add our special class to these checkboxes for the event handler
-          checkboxes.addClass('condition-management-checkbox');
+          conditionCheckboxes.addClass('condition-management-checkbox');
+        }
+        
+        // Check if any sample checkboxes were added
+        const sampleCheckboxes = $(mutation.addedNodes).find('input[id^="sampleManagement-active_"]');
+        if (sampleCheckboxes.length > 0) {
+          // Add our special class to these checkboxes for the event handler
+          sampleCheckboxes.addClass('sample-management-checkbox');
+        }
+        
+        // Check if any cluster checkboxes were added
+        const clusterCheckboxes = $(mutation.addedNodes).find('input[id^="clusterManagement-active_"]');
+        if (clusterCheckboxes.length > 0) {
+          // Add our special class to these checkboxes for the event handler
+          clusterCheckboxes.addClass('cluster-management-checkbox');
         }
       }
     });
@@ -85,21 +140,78 @@ $(document).ready(function() {
   });
 });
 
+// Custom message handler for sample checkbox initialization
+Shiny.addCustomMessageHandler("initializeSampleCheckboxes", function(message) {
+  // This will be called when we need to initialize the sample checkboxes
+  // Setup will be handled by the MutationObserver
+});
+
+// Custom message handler for cluster checkbox initialization
+Shiny.addCustomMessageHandler("initializeClusterCheckboxes", function(message) {
+  // This will be called when we need to initialize the cluster checkboxes
+  // Setup will be handled by the MutationObserver
+});
+
 // Handler for updating sample checkboxes programmatically
 Shiny.addCustomMessageHandler("updateSampleCheckboxes", function(message) {
   const selectedSamples = message.samples;
   
   // Find all sample checkboxes
-  const checkboxes = document.querySelectorAll('input.sample-select');
+  const checkboxes = document.querySelectorAll('input.sample-management-checkbox');
   
   // Update each checkbox
   checkboxes.forEach(function(checkbox) {
-    const gsm = checkbox.getAttribute('data-gsm');
-    checkbox.checked = selectedSamples.includes(gsm);
+    // Try to get the sample ID from data attribute first
+    let sampleId = checkbox.getAttribute('data-gsm');
+    
+    // If not found, fall back to extracting from ID
+    if (!sampleId) {
+      const inputId = checkbox.getAttribute('id');
+      if (inputId) {
+        sampleId = inputId.replace('sampleManagement-active_', '');
+      }
+    }
+    
+    if (sampleId) {
+      checkbox.checked = selectedSamples.includes(sampleId);
+    }
   });
   
   // Also update the "select all" checkbox
-  const selectAllCheckbox = document.getElementById('select-all-samples');
+  const selectAllCheckbox = document.getElementById('sampleManagement-selectAllSamples');
+  if (selectAllCheckbox) {
+    selectAllCheckbox.checked = checkboxes.length > 0 && 
+      Array.from(checkboxes).every(cb => cb.checked);
+  }
+});
+
+// Handler for updating cluster checkboxes programmatically
+Shiny.addCustomMessageHandler("updateClusterCheckboxes", function(message) {
+  const selectedClusters = message.clusters;
+  
+  // Find all cluster checkboxes
+  const checkboxes = document.querySelectorAll('input.cluster-management-checkbox');
+  
+  // Update each checkbox
+  checkboxes.forEach(function(checkbox) {
+    // Try to get the cluster ID from data attribute first
+    let clusterId = checkbox.getAttribute('data-cluster');
+    
+    // If not found, fall back to extracting from ID
+    if (!clusterId) {
+      const inputId = checkbox.getAttribute('id');
+      if (inputId) {
+        clusterId = inputId.replace('clusterManagement-active_', '');
+      }
+    }
+    
+    if (clusterId) {
+      checkbox.checked = selectedClusters.includes(clusterId);
+    }
+  });
+  
+  // Also update the "select all" checkbox
+  const selectAllCheckbox = document.getElementById('clusterManagement-selectAllClusters');
   if (selectAllCheckbox) {
     selectAllCheckbox.checked = checkboxes.length > 0 && 
       Array.from(checkboxes).every(cb => cb.checked);
