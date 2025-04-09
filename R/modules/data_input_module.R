@@ -31,12 +31,48 @@ dataInputUI <- function(id) {
   )
 }
 
-dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), metadata_module) {
+#' @title Data Input Module Server
+#' @description Server logic for the data input module that handles directory selection 
+#'   and data loading for scRNA-seq analysis.
+#' @param id The module ID
+#' @param volumes Named vector of root directories to use for file selection (default uses system defaults)
+#' @param metadata_module Metadata module instance for accessing metadata information
+#' @return A list of reactive expressions for accessing the loaded data
+#' @export
+dataInputServer <- function(id, volumes = NULL, metadata_module) {
   moduleServer(id, function(input, output, session) {
     # Create reactive values
     seurat_obj <- reactiveVal(NULL)
     processing_status <- reactiveVal("")
     species <- reactiveVal("auto")  # Default to auto detection
+    
+    # Define default root volumes if none are provided
+    if (is.null(volumes)) {
+      # Create a list of root locations that are likely to exist across systems
+      volumes <- c(
+        Home = Sys.getenv("HOME"),
+        Desktop = file.path(Sys.getenv("HOME"), "Desktop"),
+        Documents = file.path(Sys.getenv("HOME"), "Documents"),
+        Downloads = file.path(Sys.getenv("HOME"), "Downloads")
+      )
+      
+      # On Windows, also add common drive letters
+      if (.Platform$OS.type == "windows") {
+        for (drive in c("C:", "D:", "E:")) {
+          if (dir.exists(drive)) {
+            volumes[drive] <- drive
+          }
+        }
+      }
+      
+      # Filter out paths that don't exist to avoid errors
+      volumes <- volumes[sapply(volumes, dir.exists)]
+      
+      # If no valid paths were found, default to current working directory
+      if (length(volumes) == 0) {
+        volumes <- c("Current" = getwd())
+      }
+    }
     
     # Add UI for species selection
     output$speciesUI <- renderUI({
@@ -72,6 +108,11 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
     # Status output
     output$statusOutput <- renderText({
       processing_status()
+    })
+    
+    # Add a function to provide available root directories for UI
+    getRootDirectories <- reactive({
+      volumes
     })
     
     # Data processing
@@ -279,7 +320,8 @@ dataInputServer <- function(id, volumes = c(Home = '~/Desktop/Stanford/RA'), met
     return(list(
       data = seurat_obj,
       status = processing_status,
-      species = species
+      species = species,
+      getRootDirectories = getRootDirectories
     ))
   })
 }

@@ -22,59 +22,142 @@ install_bioc_if_missing <- function(package) {
   }
 }
 
+# Function to install if GitHub package is missing
+install_github_if_missing <- function(package, repo) {
+  if (!require(package, character.only = TRUE, quietly = TRUE)) {
+    message(sprintf("Installing %s from GitHub (%s)...", package, repo))
+    devtools::install_github(repo)
+    library(package, character.only = TRUE)
+  } else {
+    message(sprintf("%s is already installed.", package))
+  }
+}
+
 # List of required CRAN packages
 required_packages <- c(
+  # Core Shiny packages
   "shiny",
-  "patchwork",
+  "shinyjs",
   "shinyFiles",
-  "Seurat",
+  "DT",
+  
+  # Data manipulation
   "dplyr",
   "Matrix",
+  "tibble",
+  "tidyr",
+  
+  # Visualization
   "ggplot2",
-  "shinyjs",
-  "DT",
-  "devtools",
+  "patchwork",
   "pheatmap",
   "plotly",
   "htmlwidgets",
   "RColorBrewer",
-  "fontawesome"
+  "fontawesome",
+  "ggpubr",
+  
+  # Development tools
+  "devtools",
+  "remotes",
+  
+  # Single-cell analysis
+  "Seurat",
+  "hdf5r",
+  
+  # Additional utilities
+  "jsonlite",
+  "R.utils",
+  "future",
+  "future.apply"
 )
 
 # List of required Bioconductor packages
 required_bioc_packages <- c(
-  "GEOquery"
+  "GEOquery",
+  "biomaRt",
+  "SingleCellExperiment",
+  "AnnotationDbi",
+  "org.Hs.eg.db",    # Human annotations
+  "org.Mm.eg.db",    # Mouse annotations
+  "org.Rn.eg.db",    # Rat annotations
+  "org.Dr.eg.db",    # Zebrafish annotations
+  "org.Dm.eg.db",    # Drosophila annotations
+  "org.Ce.eg.db"     # C. elegans annotations
 )
+
+# GitHub packages
+github_packages <- list(
+  "scCustomize" = "samuel-marsh/scCustomize",
+  "presto" = "immunogenomics/presto"
+)
+
+# Create a log file
+log_file <- "install_log.txt"
+cat("Installation Log\n", file = log_file, append = FALSE)
+cat(paste("Started:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n\n"), file = log_file, append = TRUE)
+
+# Function to log messages
+log_message <- function(msg) {
+  message(msg)
+  cat(paste(format(Sys.time(), "%H:%M:%S"), "-", msg, "\n"), file = log_file, append = TRUE)
+}
 
 # Install BiocManager if missing
 if (!require("BiocManager", quietly = TRUE)) {
-  message("Installing BiocManager...")
+  log_message("Installing BiocManager...")
   install.packages("BiocManager")
 }
 
+# Set up parallel processing for faster installations
+log_message("Setting up parallel processing for installations...")
+if (requireNamespace("parallel", quietly = TRUE)) {
+  ncores <- min(4, parallel::detectCores())
+  options(Ncpus = ncores)
+  log_message(paste("Using", ncores, "cores for parallel installation"))
+}
+
 # Install each CRAN package if missing
-message("Checking and installing CRAN packages...")
+log_message("Checking and installing CRAN packages...")
 for (package in required_packages) {
-  install_if_missing(package)
+  tryCatch({
+    install_if_missing(package)
+  }, error = function(e) {
+    log_message(paste("Error installing", package, ":", e$message))
+  })
 }
 
 # Install each Bioconductor package if missing
-message("Checking and installing Bioconductor packages...")
+log_message("Checking and installing Bioconductor packages...")
 for (package in required_bioc_packages) {
-  install_bioc_if_missing(package)
+  tryCatch({
+    install_bioc_if_missing(package)
+  }, error = function(e) {
+    log_message(paste("Error installing", package, ":", e$message))
+  })
 }
 
 # Install GitHub packages
-message("Checking and installing GitHub packages...")
-if (!require("presto", quietly = TRUE)) {
-  message("Installing presto from GitHub...")
-  devtools::install_github("immunogenomics/presto")
+log_message("Checking and installing GitHub packages...")
+for (package in names(github_packages)) {
+  tryCatch({
+    install_github_if_missing(package, github_packages[[package]])
+  }, error = function(e) {
+    log_message(paste("Error installing", package, "from GitHub:", e$message))
+  })
 }
 
-# Install any custom packages needed for scCustomize
-if (!require("scCustomize", quietly = TRUE)) {
-  message("Installing scCustomize from GitHub...")
-  devtools::install_github("samuel-marsh/scCustomize")
+# Set additional options for Seurat and future packages
+log_message("Setting up optimal parameters for single-cell analysis...")
+if (requireNamespace("future", quietly = TRUE)) {
+  future::plan("multiprocess", workers = min(4, parallel::detectCores()))
+  options(future.globals.maxSize = 4 * 1024^3)  # 4GB
 }
 
-message("All required packages have been installed!")
+log_message("All required packages have been installed!")
+cat(paste("\nCompleted:", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), file = log_file, append = TRUE)
+
+# Print summary
+message("\n=== Installation Summary ===")
+message("Installation log saved to: ", normalizePath(log_file))
+message("To start the application, run: shiny::runApp()")

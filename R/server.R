@@ -17,7 +17,7 @@ buildServer <- function() {
     })
     
     # Initialize data input module
-    data_input <- dataInputServer("dataInput", metadata_module = metadata_module)
+    data_input <- dataInputServer("dataInput", volumes = NULL, metadata_module = metadata_module)
     
     # Extract Seurat object with proper reactive chain
     seurat_data <- reactive({
