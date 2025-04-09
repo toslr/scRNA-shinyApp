@@ -69,6 +69,9 @@ metadataServer <- function(id) {
           
           # Store metadata
           geo_metadata(metadata)
+          
+          # Initialize selected_samples with all samples by default
+          selected_samples(rownames(pheno_data))
         })
         
         output$geoStatus <- renderText({

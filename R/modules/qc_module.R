@@ -481,14 +481,34 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
 #' @keywords internal
 getSamplesToPlot <- function(seurat_obj) {
   all_samples <- unique(seurat_obj$sample)
+  
   if (length(all_samples) > 5) {
     samples_to_plot <- all_samples[1:5]
+    
+    # Add debugging to see what we're filtering
+    print(paste("Limiting QC display to 5 samples:", paste(samples_to_plot, collapse=", ")))
+    
+    # Check if we'll have cells left
     cells_to_keep <- seurat_obj$sample %in% samples_to_plot
-    return(subset(seurat_obj, cells = cells_to_keep))
+    cells_count <- sum(cells_to_keep)
+    
+    if (cells_count == 0) {
+      # If no cells would be kept, print warning and return original object
+      warning("Sample filtering would remove all cells. Displaying all samples instead.")
+      return(seurat_obj)
+    }
+    
+    # Try to subset safely
+    tryCatch({
+      return(subset(seurat_obj, cells = colnames(seurat_obj)[cells_to_keep]))
+    }, error = function(e) {
+      warning(paste("Error subsetting for display:", e$message, "- Displaying all samples instead."))
+      return(seurat_obj)
+    })
   }
+  
   return(seurat_obj)
 }
-
 #' @title Create QC Plot
 #' @description Creates violin plots for key QC metrics with improved formatting for large datasets
 #' @param seurat_obj Seurat object to visualize
