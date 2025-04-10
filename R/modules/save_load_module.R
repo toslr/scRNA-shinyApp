@@ -4,13 +4,25 @@ saveLoadUI <- function(id) {
   ns <- NS(id)
   
   div(class = "save-load-buttons",
-      style = "display: flex; gap: 10px;",
-      actionButton(ns("showSave"), "Save Analysis", 
-                   class = "btn-primary",
-                   icon = icon("save")),
-      actionButton(ns("showLoad"), "Load Analysis", 
-                   class = "btn-primary",
-                   icon = icon("folder-open"))
+      style = "display: flex; flex-direction: column; gap: 10px;",
+      div(style = "display: flex; gap: 10px;",
+          actionButton(ns("showSave"), "Save Analysis", 
+                       class = "btn-primary",
+                       icon = icon("save")),
+          actionButton(ns("showLoad"), "Load Analysis", 
+                       class = "btn-primary",
+                       icon = icon("folder-open"))
+      ),
+      # Add a checkbox to toggle between default and custom location
+      checkboxInput(ns("useCustomLocation"), "Use custom location for saving/loading analyses", value = FALSE),
+      # Container for directory path display (initially hidden)
+      conditionalPanel(
+        condition = sprintf("input['%s'] == true", ns("useCustomLocation")),
+        div(style = "margin-top: 5px;",
+            shinyDirButton(ns("selectDir"), "Select Directory", "Choose directory"),
+            verbatimTextOutput(ns("selectedDirPath"))
+        )
+      )
   )
 }
 
@@ -20,23 +32,91 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Create save directory if it doesn't exist
-    save_dir <- "analysis_saves"
-    if (!dir.exists(save_dir)) {
-      dir.create(save_dir)
+    # Define reactive values for directory paths
+    values <- reactiveValues(
+      save_dir = "analysis_saves",
+      custom_save_dir = NULL
+    )
+    
+    # Initialize default directory - use observe() to properly access reactive values
+    observe({
+      default_dir <- values$save_dir
+      if (!dir.exists(default_dir)) {
+        dir.create(default_dir)
+      }
+    })
+    
+    # Define roots for directory selection
+    volumes <- c(
+      Home = Sys.getenv("HOME"),
+      Desktop = file.path(Sys.getenv("HOME"), "Desktop"),
+      Documents = file.path(Sys.getenv("HOME"), "Documents")
+    )
+    
+    # Add platform-specific drives for Windows
+    if (.Platform$OS.type == "windows") {
+      for (drive in c("C:", "D:", "E:")) {
+        if (dir.exists(drive)) {
+          volumes[drive] <- drive
+        }
+      }
     }
+    
+    # Setup directory selection
+    shinyDirChoose(input, 'selectDir', roots = volumes, session = session)
+    
+    # Update selected directory path
+    observe({
+      req(input$selectDir)
+      values$custom_save_dir <- parseDirPath(volumes, input$selectDir)
+    })
+    
+    # Display selected directory path
+    output$selectedDirPath <- renderText({
+      if (!is.null(values$custom_save_dir)) {
+        return(values$custom_save_dir)
+      } else {
+        return("No directory selected")
+      }
+    })
+    
+    # Get the active save directory
+    get_active_save_dir <- reactive({
+      if (input$useCustomLocation && !is.null(values$custom_save_dir)) {
+        return(values$custom_save_dir)
+      } else {
+        return(values$save_dir)
+      }
+    })
     
     # Get list of saved analyses
     get_saved_analyses <- reactive({
+      save_dir <- get_active_save_dir()
+      if (!dir.exists(save_dir)) {
+        return(character(0))
+      }
       files <- list.files(save_dir, pattern = "\\.rds$", full.names = FALSE)
       files
     })
     
     # Show save dialog
     observeEvent(input$showSave, {
+      save_dir <- get_active_save_dir()
+      
+      # Create directory if it doesn't exist
+      if (!dir.exists(save_dir)) {
+        dir.create(save_dir, recursive = TRUE)
+      }
+      
       showModal(modalDialog(
         title = "Save Analysis",
         textInput(ns("saveName"), "Analysis Name:", placeholder = "my_analysis"),
+        if (input$useCustomLocation) {
+          tags$div(
+            tags$p(paste("Analysis will be saved to:", save_dir)),
+            tags$p("You can change this location using the 'Select Directory' button.")
+          )
+        },
         footer = tagList(
           modalButton("Cancel"),
           actionButton(ns("saveAnalysis"), "Save", class = "btn-primary")
@@ -46,6 +126,7 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
     
     # Show load dialog
     observeEvent(input$showLoad, {
+      save_dir <- get_active_save_dir()
       saved_files <- get_saved_analyses()
       
       showModal(modalDialog(
@@ -54,7 +135,11 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
           selectInput(ns("loadFile"), "Select Analysis:", 
                       choices = setNames(saved_files, tools::file_path_sans_ext(saved_files)))
         } else {
-          p("No saved analyses found")
+          if (dir.exists(save_dir)) {
+            p(paste0("No saved analyses found in ", save_dir))
+          } else {
+            p(paste0("Directory does not exist: ", save_dir))
+          }
         },
         footer = tagList(
           modalButton("Cancel"),
@@ -69,13 +154,13 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
     loaded_data <- reactiveVal(NULL)
     
     # Handle save
-    
     observeEvent(input$saveAnalysis, {
       req(input$saveName)
+      save_dir <- get_active_save_dir()
       
       withProgress(message = 'Saving analysis...', value = 0, {
         tryCatch({
-          print("Starting save process...")
+          print(paste("Starting save process to directory:", save_dir))
           
           # Get data safely
           current_seurat <- NULL
@@ -266,43 +351,43 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             }, error = function(e) {
               print(paste("Error capturing DE parameters:", e$message))
             })
-          })
-          
-          # Create save object
-          save_object <- list(
-            timestamp = Sys.time(),
-            seurat_data = current_seurat,
-            processed_seurat = current_processed,
-            clustered_seurat = current_clustered,
-            metadata = current_metadata,
-            selected_samples = current_selected_samples,
-            de_results = current_de_results,
-            de_analysis_type = current_de_analysis_type,
-            de_heatmap_data = current_heatmap_data,
-            de_general_heatmap_genes = current_general_heatmap_genes,
-            sample_management_state = sample_management_state,
-            condition_management_state = condition_management_state,
-            cluster_management_state = cluster_management_state,
-            steps_completed = current_steps,
-            ui_state = list(
-              qc_params = qc_params,
-              pca_params = pca_params,
-              clustering_params = clustering_params,
-              de_params = de_params
+            
+            # Create save object
+            save_object <- list(
+              timestamp = Sys.time(),
+              seurat_data = current_seurat,
+              processed_seurat = current_processed,
+              clustered_seurat = current_clustered,
+              metadata = current_metadata,
+              selected_samples = current_selected_samples,
+              de_results = current_de_results,
+              de_analysis_type = current_de_analysis_type,
+              de_heatmap_data = current_heatmap_data,
+              de_general_heatmap_genes = current_general_heatmap_genes,
+              sample_management_state = sample_management_state,
+              condition_management_state = condition_management_state,
+              cluster_management_state = cluster_management_state,
+              steps_completed = current_steps,
+              ui_state = list(
+                qc_params = qc_params,
+                pca_params = pca_params,
+                clustering_params = clustering_params,
+                de_params = de_params
+              )
             )
-          )
-          
-          # Create save directory if it doesn't exist
-          if (!dir.exists(save_dir)) {
-            dir.create(save_dir, recursive = TRUE)
-          }
-          
-          # Save to file
-          filename <- file.path(save_dir, paste0(input$saveName, ".rds"))
-          saveRDS(save_object, filename)
-          
-          removeModal()
-          showNotification("Analysis saved successfully!", type = "message")
+            
+            # Create save directory if it doesn't exist
+            if (!dir.exists(save_dir)) {
+              dir.create(save_dir, recursive = TRUE)
+            }
+            
+            # Save to file
+            filename <- file.path(save_dir, paste0(input$saveName, ".rds"))
+            saveRDS(save_object, filename)
+            
+            removeModal()
+            showNotification(paste0("Analysis saved successfully to ", filename), type = "message")
+          })
           
         }, error = function(e) {
           print(paste("Error in save process:", e$message))
@@ -315,11 +400,19 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
     # Handle load
     observeEvent(input$loadAnalysis, {
       req(input$loadFile)
+      save_dir <- get_active_save_dir()
       
       withProgress(message = 'Loading analysis...', value = 0, {
         tryCatch({
           # Load the file
           filename <- file.path(save_dir, input$loadFile)
+          print(paste("Loading analysis from:", filename))
+          
+          if (!file.exists(filename)) {
+            showNotification(paste("File not found:", filename), type = "error")
+            return(NULL)
+          }
+          
           data <- readRDS(filename)
           
           # Store the data for other modules to access
@@ -359,11 +452,8 @@ saveLoadServer <- function(id, seurat_data, metadata_module, processed_seurat,
             print(paste("Error updating DE module:", e$message))
           })
           
-          # The UI restoration will happen in the main server.R file
-          # This keeps the module more focused
-          
           removeModal()
-          showNotification("Analysis loaded successfully! Restoring UI state...", type = "message")
+          showNotification(paste0("Analysis loaded successfully from ", filename), type = "message")
           
         }, error = function(e) {
           print(paste("Error loading analysis:", e$message))
