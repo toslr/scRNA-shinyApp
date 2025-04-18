@@ -9,9 +9,8 @@ buildServer <- function() {
   function(input, output, session) {
     print("Starting server initialization")
     
-    # Initialize metadata module first
+    # Initialize metadata module
     metadata_module <- metadataServer("metadata")
-    
     metadata_handler <- reactive({
       metadata_module
     })
@@ -107,8 +106,6 @@ buildServer <- function() {
       if (is.null(data)) return()
       
       print("Loading saved analysis...")
-      
-      # Start a progress indication
       withProgress(message = 'Restoring analysis state...', value = 0, {
         
         # First, update steps completed to ensure proper UI display
@@ -120,24 +117,22 @@ buildServer <- function() {
         # Update original data
         incProgress(0.2, detail = "Restoring data")
         if (!is.null(data$seurat_data)) {
-          # Check how data_input is structured and update accordingly
           if (is.reactive(data_input)) {
             data_input(data$seurat_data)
           } else if (is.list(data_input) && is.function(data_input$data)) {
-            # For the new structure where data_input is a list with a data reactiveVal
             data_input$data(data$seurat_data)
           } else {
             showNotification("Error restoring data: incompatible format", type = "error")
           }
         }
         
-        # CRITICAL: Directly update the processed Seurat object without triggering computation
+        # Update the processed Seurat object without triggering computation
         incProgress(0.4, detail = "Restoring processed data")
         if (is.list(qc_module) && is.function(qc_module$setProcessedData) && !is.null(data$processed_seurat)) {
           qc_module$setProcessedData(data$processed_seurat)
         }
         
-        # CRITICAL: Directly update the clustered Seurat object without triggering computation
+        # Update the clustered Seurat object without triggering computation
         incProgress(0.7, detail = "Restoring clustering")
         if (is.list(dimred_module) && is.function(dimred_module$setClusteredData) && !is.null(data$clustered_seurat)) {
           dimred_module$setClusteredData(data$clustered_seurat)
@@ -158,7 +153,7 @@ buildServer <- function() {
         })
         
         # After a delay, restore condition management
-        shinyjs::delay(1000, {
+        shinyjs::delay(800, {
           incProgress(0.85, detail = "Restoring condition management")
           if (!is.null(data$condition_management_state) && 
               is.list(condition_management) && 
@@ -169,7 +164,7 @@ buildServer <- function() {
         })
         
         # After another delay, restore cluster management
-        shinyjs::delay(1700, {
+        shinyjs::delay(1300, {
           incProgress(0.9, detail = "Restoring cluster management")
           if (!is.null(data$cluster_management_state) && 
               is.list(cluster_management) && 
@@ -180,7 +175,7 @@ buildServer <- function() {
         })
         
         # Restore DE analysis after all other elements
-        shinyjs::delay(2400, {
+        shinyjs::delay(1800, {
           incProgress(0.95, detail = "Restoring DE analysis")
           if (is.list(de_module) && is.function(de_module$setResults) && !is.null(data$de_results)) {
             de_module$setResults(
@@ -195,41 +190,6 @@ buildServer <- function() {
           showNotification("Analysis state fully restored", type = "message")
         })
       })
-    })
-    
-    # Render cluster controls UI
-    output$clusterControls <- renderUI({
-      has_clustered <- !is.null(clustered_seurat())
-      has_clusters <- FALSE
-      
-      if (has_clustered) {
-        tryCatch({
-          has_clusters <- "seurat_clusters" %in% colnames(clustered_seurat()@meta.data)
-        }, error = function(e) {
-          print(paste("Error checking for clusters:", e$message))
-        })
-      }
-      
-      if (!has_clustered || !has_clusters) {
-        return(div(
-          class = "alert alert-info",
-          style = "margin-top: 10px; margin-bottom: 10px;",
-          "Cluster controls will appear here after the clustering step is complete."
-        ))
-      }
-      
-      div(
-        style = "margin-top: 10px;",
-        div(
-          style = "display: flex; align-items: center; margin-bottom: 10px;",
-          checkboxInput("selectAllClusters", "Select All Clusters", value = TRUE),
-          tags$div(style = "margin-left: 8px;",
-                   actionButton("updateAllLabels", "Save Labels", 
-                                class = "btn-sm btn-primary")
-          )
-        ),
-        clusterManagementUI("clusterManagement")
-      )
     })
     
     # Render sample controls UI
@@ -286,6 +246,40 @@ buildServer <- function() {
       )
     })
     
+    # Render cluster controls UI
+    output$clusterControls <- renderUI({
+      has_clustered <- !is.null(clustered_seurat())
+      has_clusters <- FALSE
+      
+      if (has_clustered) {
+        tryCatch({
+          has_clusters <- "seurat_clusters" %in% colnames(clustered_seurat()@meta.data)
+        }, error = function(e) {
+          print(paste("Error checking for clusters:", e$message))
+        })
+      }
+      
+      if (!has_clustered || !has_clusters) {
+        return(div(
+          class = "alert alert-info",
+          style = "margin-top: 10px; margin-bottom: 10px;",
+          "Cluster controls will appear here after the clustering step is complete."
+        ))
+      }
+      
+      div(
+        style = "margin-top: 10px;",
+        div(style = "display: flex; align-items: center; margin-bottom: 10px;",
+            checkboxInput("selectAllClusters", "Select All Clusters", value = TRUE),
+            tags$div(style = "margin-left: 8px;",
+                     actionButton("updateAllLabels", "Save Labels", 
+                                  class = "btn-sm btn-primary")
+            )
+        ),
+        clusterManagementUI("clusterManagement")
+      )
+    })
+    
     # Handle the sample management all samples checkbox
     observeEvent(input$selectAllSamples, {
       if (is.function(sample_management$updateActiveStatus)) {
@@ -300,22 +294,6 @@ buildServer <- function() {
         }
       }
     })
-    
-    # Handle sample label updates button
-    observeEvent(input$updateSampleLabels, {
-      if (is.list(sample_management) && is.function(sample_management$updateFromButton)) {
-        # Explicitly call the update function
-        sample_management$updateFromButton()
-      }
-    }, ignoreInit = TRUE)
-    
-    # Handle condition label updates button
-    observeEvent(input$updateConditionLabels, {
-      if (is.list(condition_management) && is.function(condition_management$updateFromButton)) {
-        # Explicitly call the update function
-        condition_management$updateFromButton()
-      }
-    }, ignoreInit = TRUE)
     
     # Handle the cluster management all clusters checkbox
     observeEvent(input$selectAllClusters, {
@@ -332,10 +310,23 @@ buildServer <- function() {
       }
     })
     
+    # Handle sample label updates button
+    observeEvent(input$updateSampleLabels, {
+      if (is.list(sample_management) && is.function(sample_management$updateFromButton)) {
+        sample_management$updateFromButton()
+      }
+    }, ignoreInit = TRUE)
+    
+    # Handle condition label updates button
+    observeEvent(input$updateConditionLabels, {
+      if (is.list(condition_management) && is.function(condition_management$updateFromButton)) {
+        condition_management$updateFromButton()
+      }
+    }, ignoreInit = TRUE)
+    
     # Handle cluster label updates button
     observeEvent(input$updateAllLabels, {
       if (is.list(cluster_management) && is.function(cluster_management$updateFromButton)) {
-        # Explicitly call the update function
         cluster_management$updateFromButton()
       }
     })

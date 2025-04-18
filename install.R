@@ -95,12 +95,14 @@ github_packages <- list(
 # Create a log file
 log_file <- "install_log.txt"
 cat("Installation Log\n", file = log_file, append = FALSE)
-cat(paste("Started:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n\n"), file = log_file, append = TRUE)
+cat(paste("Started:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n\n"), 
+    file = log_file, append = TRUE)
 
 # Function to log messages
 log_message <- function(msg) {
   message(msg)
-  cat(paste(format(Sys.time(), "%H:%M:%S"), "-", msg, "\n"), file = log_file, append = TRUE)
+  cat(paste(format(Sys.time(), "%H:%M:%S"), "-", msg, "\n"), file = log_file, 
+      append = TRUE)
 }
 
 # Install BiocManager if missing
@@ -166,7 +168,8 @@ for (package_name in names(github_packages)) {
       if (require(package_name, character.only = TRUE, quietly = TRUE)) {
         log_message(paste("Successfully installed", package_name))
       } else {
-        log_message(paste("WARNING: Failed to load", package_name, "after installation"))
+        log_message(paste("WARNING: Failed to load", package_name, 
+                          "after installation"))
       }
     } else {
       log_message(paste(package_name, "is already installed"))
@@ -178,7 +181,8 @@ for (package_name in names(github_packages)) {
 
 
 log_message("All required packages have been installed!")
-cat(paste("\nCompleted:", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), file = log_file, append = TRUE)
+cat(paste("\nCompleted:", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), 
+    file = log_file, append = TRUE)
 
 # Print summary
 message("\n=== Installation Summary ===")

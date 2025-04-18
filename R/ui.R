@@ -1,8 +1,12 @@
-# R/ui.R
-
-#' @title Build Application UI
-#' @description Constructs the complete user interface for the single-cell RNA-seq analysis application,
-#'   including the sidebar navigation, module UIs, and main content area.
+#' @title Single-cell RNA Analysis UI
+#' @description Main UI definition for the Single-cell RNA Analysis application
+#' @details Creates a UI with sidebar navigation, multiple panels for 
+#'   different analysis steps, and interactive visualization components.
+#' @author Tom Soulaire
+#' @import shiny
+#' @import patchwork
+#' @import DT
+#' @import shinyjs
 #' @return A Shiny UI object containing the complete application interface
 #' @export
 buildUI <- function() {
