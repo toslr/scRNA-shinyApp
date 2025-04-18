@@ -48,7 +48,7 @@ setupNavigation <- function(output, steps_completed) {
                       div(class = "metro-dot"),
                       div(class = "metro-label", 
                           step$name,
-                          if(step$completed) tags$span(class="metro-check", "✓"))
+                          if(step$completed) tags$span(class="metro-check", HTML("&#10003;")))
                     )
                   }
               )

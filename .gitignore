@@ -7,3 +7,4 @@ app_backup.R
 scratch.R
 linearScript.R
 /analysis_saves/*
+install_log.txt
