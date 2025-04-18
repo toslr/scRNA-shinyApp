@@ -36,10 +36,8 @@ setupObservers <- function(steps_completed, seurat_data, metadata_module, proces
   # Track QC completion
   observe({
     if (is.list(processed_seurat) && is.function(processed_seurat$data)) {
-      # Enhanced module returns a list with a data reactive
       steps_completed$qc <- !is.null(processed_seurat$data())
     } else if (is.reactive(processed_seurat)) {
-      # Original module returns a reactive directly
       steps_completed$qc <- !is.null(processed_seurat())
     } else {
       steps_completed$qc <- FALSE
@@ -49,14 +47,12 @@ setupObservers <- function(steps_completed, seurat_data, metadata_module, proces
   # Track dimension reduction and clustering completion
   observe({
     if (is.list(clustered_seurat) && is.function(clustered_seurat$data)) {
-      # Enhanced module returns a list with a data reactive
       seurat_obj <- clustered_seurat$data()
       if (!is.null(seurat_obj)) {
         steps_completed$dimred <- any(c("umap2d", "umap3d", "umap") %in% names(seurat_obj@reductions))
         steps_completed$clustering <- "seurat_clusters" %in% colnames(seurat_obj@meta.data)
       }
     } else if (is.reactive(clustered_seurat)) {
-      # Original module returns a reactive directly
       seurat_obj <- clustered_seurat()
       if (!is.null(seurat_obj)) {
         steps_completed$dimred <- any(c("umap2d", "umap3d", "umap") %in% names(seurat_obj@reductions))

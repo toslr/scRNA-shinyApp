@@ -8,8 +8,6 @@
 #' @export
 restoreQcUI <- function(qc_params, session) {
   if (is.null(qc_params)) return(FALSE)
-  
-  # Update QC input values
   tryCatch({
     if (!is.null(qc_params$minFeature)) {
       updateNumericInput(session, "qc-minFeature", value = qc_params$minFeature)
@@ -21,7 +19,6 @@ restoreQcUI <- function(qc_params, session) {
       updateNumericInput(session, "qc-maxMT", value = qc_params$maxMT)
     }
     
-    # Return whether QC was processed, but DON'T trigger the button
     return(!is.null(qc_params$qc_processed) && qc_params$qc_processed)
   }, error = function(e) {
     print(paste("Error restoring QC UI:", e$message))
@@ -40,12 +37,9 @@ restorePcaUI <- function(pca_params, session) {
   if (is.null(pca_params)) return(FALSE)
   
   tryCatch({
-    # Update dimension input
     if (!is.null(pca_params$nDims)) {
       updateNumericInput(session, "dimRed-nDims", value = pca_params$nDims)
     }
-    
-    # Return whether dimensions were confirmed, but DON'T trigger the button
     return(!is.null(pca_params$dims_confirmed) && pca_params$dims_confirmed)
   }, error = function(e) {
     print(paste("Error restoring PCA UI:", e$message))
@@ -63,12 +57,9 @@ restoreClusteringUI <- function(clustering_params, session) {
   if (is.null(clustering_params)) return(FALSE)
   
   tryCatch({
-    # Update resolution input
     if (!is.null(clustering_params$resolution)) {
       updateNumericInput(session, "dimRed-resolution", value = clustering_params$resolution)
     }
-    
-    # Return whether clustering was done, but DON'T trigger the button
     return(!is.null(clustering_params$clustering_done) && clustering_params$clustering_done)
   }, error = function(e) {
     print(paste("Error restoring clustering UI:", e$message))
@@ -86,24 +77,18 @@ restoreDEAnalysisUI <- function(de_params, session) {
   if (is.null(de_params)) return(FALSE)
   
   tryCatch({
-    # Update DE inputs
     if (!is.null(de_params$target_cluster_all)) {
       updateSelectInput(session, "de-targetClusterAll", selected = de_params$target_cluster_all)
     }
-    
     if (!is.null(de_params$target_cluster1)) {
       updateSelectInput(session, "de-targetCluster1", selected = de_params$target_cluster1)
     }
-    
     if (!is.null(de_params$target_cluster2)) {
       updateSelectInput(session, "de-targetCluster2", selected = de_params$target_cluster2)
     }
-    
     if (!is.null(de_params$genes_per_cluster)) {
       updateNumericInput(session, "de-genesPerCluster", value = de_params$genes_per_cluster)
     }
-    
-    # Return whether DE was done, but DON'T trigger the buttons
     return(!is.null(de_params$de_analysis_done) && de_params$de_analysis_done)
   }, error = function(e) {
     print(paste("Error restoring DE UI:", e$message))

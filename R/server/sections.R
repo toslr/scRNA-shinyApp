@@ -1,4 +1,4 @@
-# R/server/sections.R - Updated version
+# R/server/sections.R
 
 #' @title Setup Main Content Sections
 #' @description Sets up the main content sections of the single-cell RNA-seq analysis application.
@@ -21,9 +21,7 @@ setupSections <- function(input, output, seurat_data, metadata_handler, processe
     print("Checking metadata handler")
     req(metadata_handler)
     metadata_module <- metadata_handler()
-    
     req(metadata_module$getMetadata())
-    
     div(id = "metadata-section",
         h3(class = "section-header", "Sample Metadata"),
         DTOutput(NS("metadata", "metadataTable"))

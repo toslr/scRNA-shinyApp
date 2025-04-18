@@ -1,9 +1,13 @@
-# R/navigation.R (modified)
+# R/navigation.R
 
+#' @title Setup Navigation Panel
+#' @description Sets up the metro-style navigation panel for the application's main steps
+#' @param output Shiny output object for rendering UI elements
+#' @param steps_completed Reactive values object tracking completion status of each analysis step
+#' @return None (used for its side effects of setting up UI elements)
+#' @keywords internal
 setupNavigation <- function(output, steps_completed) {
-  # Metro-style navigation
   output$metroNavigation <- renderUI({
-    # Define our modules/steps in order
     steps <- list(
       list(id = "metadata-section", name = "Metadata", completed = steps_completed$metadata),
       list(id = "qc-section", name = "Quality Control", completed = steps_completed$qc, 
@@ -21,7 +25,6 @@ setupNavigation <- function(output, steps_completed) {
             lapply(1:length(steps), function(i) {
               step <- steps[[i]]
               
-              # Determine the status class
               status_class <- if (!is.null(step$available) && !step$available) {
                 "disabled"
               } else if (step$completed) {
@@ -32,9 +35,7 @@ setupNavigation <- function(output, steps_completed) {
               
               # Create station
               div(class = paste("metro-station", status_class),
-                  # Add clickable functionality
                   if (!is.null(step$available) && !step$available) {
-                    # Non-clickable if not available
                     div(class = "metro-station-content",
                         div(class = "metro-dot"),
                         div(class = "metro-label", step$name)
@@ -55,10 +56,5 @@ setupNavigation <- function(output, steps_completed) {
             })
         )
     )
-  })
-  
-  # Keep the original task list empty
-  output$taskList <- renderUI({
-    NULL
   })
 }
