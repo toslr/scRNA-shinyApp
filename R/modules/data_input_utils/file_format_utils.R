@@ -1,4 +1,4 @@
-#' @title Read H5 File
+#' @title Read 10X H5 File
 #' @description Reads a 10X Genomics HDF5 file and creates a sparse matrix
 #' @param file_path Path to the H5 file
 #' @return A list containing a sparse matrix of counts
@@ -10,7 +10,7 @@ Read_10X_H5 <- function(file_path) {
   }
   
   # Use Read10X_h5 from Seurat to read 10X h5 file
-  message("Reading H5 file:", file_path)
+  print(paste("Reading H5 file:", file_path))
   counts <- Seurat::Read10X_h5(file_path)
   
   # If it's a list (multimodal data), use just the Gene Expression
@@ -86,11 +86,10 @@ Detect_10X_MTX_Format <- function(dir_path, gsm_id) {
   
   # List all files in the directory
   all_files <- list.files(dir_path, full.names = FALSE)
-  print(paste("Files in directory:", paste(all_files, collapse=", ")))
+  print(paste("Checking for 10X MTX format files for GSM ID:", gsm_id))
   
   # Look for the triplet of files needed for 10X MTX format
   base_pattern <- paste0("^", gsm_id, ".*")
-  print(paste("Looking for pattern:", base_pattern))
   
   # Check for the three required files
   barcode_files <- list.files(dir_path, pattern = paste0(base_pattern, "barcodes\\.tsv\\.gz$"), full.names = TRUE)
@@ -201,7 +200,6 @@ Detect_File_Format_Type <- function(dir_path, file_name) {
   
   # For GSM IDs, we need to check if any matching files exist
   # First check for 10X MTX format - this should be first since it's more specific
-  print(paste("Checking for 10X MTX format files for GSM ID:", file_name))
   mtx_files <- Detect_10X_MTX_Format(dir_path, file_name)
   if (!is.null(mtx_files)) {
     print("10X MTX format detected")
@@ -229,6 +227,52 @@ Detect_File_Format_Type <- function(dir_path, file_name) {
   return("unknown")
 }
 
+#' @title Read GEO Delimited File
+#' @description Reads a GEO data file in delimited format
+#' @param data_dir Directory containing the file
+#' @param file_suffix Filename or suffix to read
+#' @return A list containing a sparse matrix of gene counts
+#' @export
+Read_GEO_Delim <- function(data_dir, file_suffix) {
+  # This keeps your original implementation
+  # Determine the actual file path
+  if (file.exists(file.path(data_dir, file_suffix))) {
+    # Direct file name provided
+    file_path <- file.path(data_dir, file_suffix)
+  } else {
+    # GSM ID provided, find the matching file
+    matching_files <- list.files(data_dir, pattern = paste0("^", file_suffix, ".*\\.txt\\.gz$"), full.names = TRUE)
+    if (length(matching_files) == 0) {
+      stop(paste("No matching .txt.gz files found for", file_suffix))
+    }
+    file_path <- matching_files[1]
+  }
+  
+  print(paste("Reading text file:", file_path))
+  
+  # Read the data
+  tryCatch({
+    # Try to read with tab as delimiter
+    data_matrix <- read.delim(file_path, sep="\t", header=TRUE, row.names=1, check.names=FALSE)
+    
+    # Convert to sparse matrix for memory efficiency
+    sparse_matrix <- Matrix::Matrix(as.matrix(data_matrix), sparse=TRUE)
+    
+    # Return as a list with a single element (to match other read functions)
+    print(paste("Successfully read text file with dimensions:", nrow(sparse_matrix), "x", ncol(sparse_matrix)))
+    return(list(sparse_matrix))
+  }, error = function(e) {
+    print(paste("Error reading file:", e$message))
+    stop(paste("Failed to read file:", e$message))
+  })
+}
+
+#' @title Calculate Mitochondrial Percentage
+#' @description Calculates percentage of mitochondrial gene expression in a Seurat object
+#' @param seurat_obj Seurat object to analyze
+#' @param species Species to determine mitochondrial gene patterns (auto, human, mouse, etc.)
+#' @return Seurat object with added percent.mt column
+#' @export
 Calculate_MT_Percent <- function(seurat_obj, species = NULL) {
   # Get gene names
   gene_names <- rownames(seurat_obj)

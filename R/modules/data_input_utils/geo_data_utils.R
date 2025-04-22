@@ -1,3 +1,66 @@
+#' @title Read GEO Delimited File
+#' @description Reads a GEO data file in delimited format
+#' @param data_dir Directory containing the file
+#' @param file_suffix Filename or suffix to read
+#' @return A list containing a sparse matrix of gene counts
+#' @export
+Read_GEO_Delim <- function(data_dir, file_suffix) {
+  # Find the actual file path
+  if (grepl("\\.txt\\.gz$", file_suffix)) {
+    file_path <- file.path(data_dir, file_suffix)
+  } else {
+    # Look for a file matching the GSM pattern
+    files <- list.files(data_dir, pattern = paste0("^", file_suffix, ".*\\.txt\\.gz$"), full.names = TRUE)
+    if (length(files) == 0) {
+      stop(paste("No matching .txt.gz files found for", file_suffix))
+    }
+    file_path <- files[1]
+  }
+  
+  # Check if file exists
+  if (!file.exists(file_path)) {
+    stop(paste("File not found:", file_path))
+  }
+  
+  # Read the first few lines to determine format
+  con <- gzfile(file_path, "r")
+  header <- readLines(con, n = 5)
+  close(con)
+  
+  # Determine separator and skip based on header
+  if (any(grepl("^\\s*ENSMUSG|^\\s*ENSG", header))) {
+    # Standard GEO format with gene IDs in first column
+    separator <- "\t"
+    skip_lines <- 0
+  } else {
+    # Try to detect format
+    if (any(grepl("\t", header))) {
+      separator <- "\t"
+    } else if (any(grepl(",", header))) {
+      separator <- ","
+    } else {
+      separator <- " "
+    }
+    
+    # Check for header lines to skip
+    skip_lines <- sum(grepl("^#|^\"#", header))
+  }
+  
+  # Read the data
+  data <- tryCatch({
+    df <- read.delim(file_path, sep = separator, skip = skip_lines, 
+                     header = TRUE, row.names = 1, check.names = FALSE)
+    
+    # Convert to sparse matrix
+    sparse_mat <- as(as.matrix(df), "dgCMatrix")
+    list(sparse_mat)
+  }, error = function(e) {
+    stop(paste("Error reading file:", e$message))
+  })
+  
+  return(data)
+}
+
 #' @title Find Matching GEO Files
 #' @description Finds files that match the selected GEO Sample accessions (GSM).
 #' @param all_files Character vector of all available files in the directory
@@ -20,52 +83,6 @@ findMatchingFiles <- function(all_files, selected_samples) {
   }
   
   return(selected_files)
-}
-
-#' @title Create Seurat Objects from GEO Files
-#' @description Creates Seurat objects from GEO data files, adding metadata and gene mappings.
-#' @param dir_path Path to the directory containing data files
-#' @param selected_files Character vector of selected file names to process
-#' @param selected_samples Character vector of GSM IDs corresponding to the files
-#' @param gene_mapping Named vector for mapping Ensembl IDs to gene names
-#' @param metadata_function Function to retrieve metadata for the samples
-#' @return List of Seurat objects, one for each sample
-#' @export
-createSeuratObjects <- function(dir_path, selected_files, selected_samples, gene_mapping, metadata_function) {
-  seurat_objects <- list()
-  count = 0
-  
-  for(file in selected_files) {
-    count = count + 1
-    incProgress(0.9/(length(selected_files)+1), 
-                detail = paste("Reading file", count, "of", length(selected_files)))
-    
-    # Read the file
-    data <- Read_GEO_Delim(data_dir = dir_path, 
-                           file_suffix = file)
-    
-    if(length(data) > 0 && !is.null(data[[1]])) {
-      # Create Seurat object for this sample
-      gsm <- file_to_gsm[[file]]
-      seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
-      seurat$sample <- gsm
-      
-      # Add GEO metadata if available
-      addMetadata(seurat, gsm, metadata_function)
-      
-      # Add percent.mt
-      seurat[["percent.mt"]] <- PercentageFeatureSet(seurat,
-                                                     pattern = "^ENSMUSG00000064")
-      
-      # Store gene mapping
-      seurat@misc$gene_mapping <- gene_mapping
-      
-      # Store in list
-      seurat_objects[[gsm]] <- seurat
-    }
-  }
-  
-  return(seurat_objects)
 }
 
 #' @title Add Metadata to Seurat Object

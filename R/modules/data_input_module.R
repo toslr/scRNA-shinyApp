@@ -200,69 +200,18 @@ dataInputServer <- function(id, volumes = NULL, metadata_module) {
           count = 0
           detected_species <- NULL
           
-          # Process each file
-          for(file in selected_files) {
-            count = count + 1
-            format_type <- file_formats[[file]]
-            processing_status(paste("Reading file", count, "of", length(selected_files), ":", file, "(", format_type, "format)"))
-            incProgress(0.9/(length(selected_files)+1), 
-                        detail = paste("Reading file", count, "of", length(selected_files)))
-            
-            # Read the data file
-            data <- Read_Data_File(selected_dir(), file)
-            
-            if(length(data) > 0 && !is.null(data[[1]])) {
-              gsm <- file_to_gsm[[file]]
-              processing_status(paste("Creating Seurat object for sample", gsm))
-              
-              # Create a Seurat object with proper cell naming to avoid conflicts
-              # Add GSM prefix to cell names to ensure uniqueness across samples
-              cell_names <- colnames(data[[1]])
-              new_cell_names <- paste0(gsm, "_", cell_names)
-              colnames(data[[1]]) <- new_cell_names
-              
-              # Create Seurat object with the modified cell names
-              seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
-              
-              # Add sample identifier
-              seurat$sample <- gsm
-              
-              # Detect species if auto mode
-              if (selected_species == "auto" && is.null(detected_species)) {
-                processing_status("Auto-detecting species from gene IDs...")
-                detected_species <- detect_species(seurat)
-                processing_status(paste("Detected species:", detected_species))
-                # Update selected species
-                selected_species <- detected_species
-              }
-              
-              # Add GEO metadata if available
-              meta_func <- metadata_module$getMetadata
-              if (!is.null(meta_func)) {
-                metadata_data <- meta_func()
-                if (!is.null(metadata_data)) {
-                  sample_meta <- metadata_data[metadata_data$geo_accession == gsm, ]
-                  for(col in setdiff(colnames(sample_meta), "geo_accession")) {
-                    seurat[[col]] <- sample_meta[[col]][1]
-                  }
-                }
-              }
-              
-              # Add species information
-              seurat$species <- selected_species
-              
-              # Calculate mitochondrial percentage with species info
-              seurat <- Calculate_MT_Percent(seurat, species = selected_species)
-              
-              seurat@misc$gene_mapping <- gene_mapping
-              seurat_objects[[gsm]] <- seurat
-              
-              processing_status(paste("Successfully created Seurat object for", gsm,
-                                      "with", ncol(seurat), "cells and", nrow(seurat), "genes"))
-            } else {
-              processing_status(paste("Warning: No data found for", file))
-            }
-          }
+          # Process each file using createSeuratObjects
+          seurat_objects <- createSeuratObjects(
+            selected_dir(), 
+            selected_files, 
+            file_to_gsm, 
+            file_formats, 
+            gene_mapping, 
+            metadata_module, 
+            selected_species, 
+            processing_status, 
+            incProgress
+          )
           
           processing_status(paste("Created", length(seurat_objects), "Seurat objects"))
           
@@ -324,4 +273,91 @@ dataInputServer <- function(id, volumes = NULL, metadata_module) {
       getRootDirectories = getRootDirectories
     ))
   })
+}
+
+#' @title Create Seurat Objects from Files
+#' @description Creates Seurat objects from data files, adding metadata and gene mappings.
+#' @param dir_path Path to the directory containing data files
+#' @param selected_files Character vector of selected file names to process
+#' @param file_to_gsm Mapping of file names to GSM IDs
+#' @param file_formats Mapping of file names to format types
+#' @param gene_mapping Named vector for mapping Ensembl IDs to gene names
+#' @param metadata_module Metadata module instance for accessing metadata information
+#' @param selected_species Selected species for mitochondrial gene detection
+#' @param processing_status Function to update processing status
+#' @param incProgress Function to update progress
+#' @return List of Seurat objects, one for each sample
+#' @export
+createSeuratObjects <- function(dir_path, selected_files, file_to_gsm, file_formats, 
+                                gene_mapping, metadata_module, selected_species,
+                                processing_status, incProgress) {
+  seurat_objects <- list()
+  count = 0
+  detected_species <- NULL
+  
+  # Process each file
+  for(file in selected_files) {
+    count = count + 1
+    format_type <- file_formats[[file]]
+    processing_status(paste("Reading file", count, "of", length(selected_files), ":", file, "(", format_type, "format)"))
+    incProgress(0.9/(length(selected_files)+1), 
+                detail = paste("Reading file", count, "of", length(selected_files)))
+    
+    # Read the data file
+    data <- Read_Data_File(dir_path, file)
+    
+    if(length(data) > 0 && !is.null(data[[1]])) {
+      gsm <- file_to_gsm[[file]]
+      processing_status(paste("Creating Seurat object for sample", gsm))
+      
+      # Create a Seurat object with proper cell naming to avoid conflicts
+      # Add GSM prefix to cell names to ensure uniqueness across samples
+      cell_names <- colnames(data[[1]])
+      new_cell_names <- paste0(gsm, "_", cell_names)
+      colnames(data[[1]]) <- new_cell_names
+      
+      # Create Seurat object with the modified cell names
+      seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
+      
+      # Add sample identifier
+      seurat$sample <- gsm
+      
+      # Detect species if auto mode
+      if (selected_species == "auto" && is.null(detected_species)) {
+        processing_status("Auto-detecting species from gene IDs...")
+        detected_species <- detect_species(seurat)
+        processing_status(paste("Detected species:", detected_species))
+        # Update selected species
+        selected_species <- detected_species
+      }
+      
+      # Add GEO metadata if available
+      meta_func <- metadata_module$getMetadata
+      if (!is.null(meta_func)) {
+        metadata_data <- meta_func()
+        if (!is.null(metadata_data)) {
+          sample_meta <- metadata_data[metadata_data$geo_accession == gsm, ]
+          for(col in setdiff(colnames(sample_meta), "geo_accession")) {
+            seurat[[col]] <- sample_meta[[col]][1]
+          }
+        }
+      }
+      
+      # Add species information
+      seurat$species <- selected_species
+      
+      # Calculate mitochondrial percentage with species info
+      seurat <- Calculate_MT_Percent(seurat, species = selected_species)
+      
+      seurat@misc$gene_mapping <- gene_mapping
+      seurat_objects[[gsm]] <- seurat
+      
+      processing_status(paste("Successfully created Seurat object for", gsm,
+                              "with", ncol(seurat), "cells and", nrow(seurat), "genes"))
+    } else {
+      processing_status(paste("Warning: No data found for", file))
+    }
+  }
+  
+  return(seurat_objects)
 }
