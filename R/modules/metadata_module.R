@@ -61,16 +61,11 @@ metadataServer <- function(id) {
           
           # Get all characteristics columns
           char_columns <- grep("characteristics_ch", colnames(pheno_data), value = TRUE)
-          
-          # Add each characteristics column
           for (col in char_columns) {
             metadata[[col]] <- pheno_data[[col]]
           }
-          
-          # Store metadata
+
           geo_metadata(metadata)
-          
-          # Initialize selected_samples with all samples by default
           selected_samples(rownames(pheno_data))
         })
         
@@ -168,7 +163,6 @@ metadataServer <- function(id) {
         selected_samples(samples)
         
         # Update checkboxes if the DT is already rendered
-        # This requires special handling with JavaScript
         session$sendCustomMessage(
           type = "updateSampleCheckboxes",
           message = list(samples = samples)
@@ -177,13 +171,13 @@ metadataServer <- function(id) {
     }
     
     # Return reactive expressions
-    list(
+    return(list(
       getMetadata = reactive({ geo_metadata() }),
       selectedSamples = reactive({ selected_samples() }),
       updateMetadata = function(new_metadata) {
         geo_metadata(new_metadata)
       },
       setSelectedSamples = setSelectedSamples
-    )
+    ))
   })
 }
