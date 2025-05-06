@@ -9,7 +9,7 @@ metadataUI <- function(id) {
   
   tagList(
     # Intro text
-    p("Welcome to scRNA Analysis! Please start by selecting your GEO dataset."),
+    p("Welcome to SC Explorer! Please start by selecting your GEO dataset."),
     # GEO input section
     strong("Input GEO Series ID:"),
     div(style = "margin-top: 10px;",

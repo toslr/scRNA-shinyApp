@@ -1,6 +1,6 @@
-# shinyscRNA: Single-Cell RNA Analysis Tool 
+# SC Explorer: a scRNA Exploring Tool 
 
-A comprehensive Shiny application for analyzing single-cell RNA sequencing data with an intuitive modular workflow. shinyscRNA provides a streamlined interface for scRNA-seq analysis with support for both web and desktop usage through Electron.
+A comprehensive Shiny application for analyzing single-cell RNA sequencing data with an intuitive modular workflow. SC Explorer provides a streamlined interface for scRNA-seq analysis with support for both web and desktop usage through Electron.
 
 ## Table of Contents
 - [Installation](#installation)
@@ -70,7 +70,7 @@ shiny::runApp()
 
 The application can also be run as a desktop application using Electron:
 
-1. For MacOS: Download the app file: shinyscRNA-1.0.0-arm64.dmg
+1. For MacOS: Download the app file: SCExplorer-1.0.0-arm64.dmg
 
 2. Put it in your Applications folder and click to run it.
 
@@ -81,7 +81,7 @@ security settings.
 
 ## User Guide
 
-The shinyscRNA app provides a step-by-step workflow for analyzing single-cell RNA sequencing data. Follow these steps to complete your analysis:
+The SC Explorer app provides a step-by-step workflow for analyzing single-cell RNA sequencing data. Follow these steps to complete your analysis:
 
 ### Metadata Import
 

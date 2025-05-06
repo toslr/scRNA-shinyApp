@@ -17,7 +17,7 @@ buildUI <- function() {
     
     # Top bar with title and navigation
     div(id = "topbar",
-        h1(id = "app-title", "Single-Cell RNA Analysis"),
+        h1(id = "app-title", "SC Explorer"),
         # Add the navigation panel here
         div(id = "top-navigation",
             uiOutput("metroNavigation")
