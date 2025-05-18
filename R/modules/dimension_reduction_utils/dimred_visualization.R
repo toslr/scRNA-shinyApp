@@ -771,3 +771,60 @@ create_multi_feature_umap <- function(seurat_obj, features, reduction = "umap", 
               ncol = ncol,
               ...)
 }
+
+#' @title Extract PCA Data for Download
+#' @description Extracts PCA eigenvalues, variance explained, and coordinates for download
+#' @param seurat_obj Seurat object containing PCA results
+#' @return List containing multiple data frames with PCA information
+#' @export
+extractPCAData <- function(seurat_obj) {
+  # Check if PCA exists
+  if (!("pca" %in% names(seurat_obj@reductions))) {
+    return(NULL)
+  }
+  
+  # Extract eigenvalues and variance explained
+  pca_obj <- seurat_obj[["pca"]]
+  eigenvalues <- (Stdev(pca_obj))^2
+  variance_explained <- eigenvalues / sum(eigenvalues)
+  cumulative_variance <- cumsum(variance_explained)
+  
+  # Create summary data frame
+  pca_summary <- data.frame(
+    PC = 1:length(eigenvalues),
+    Eigenvalue = eigenvalues,
+    VarianceExplained = variance_explained,
+    CumulativeVariance = cumulative_variance
+  )
+  
+  # Extract cell embeddings (PCA coordinates)
+  pca_embeddings <- as.data.frame(Embeddings(pca_obj))
+  
+  # Add cell IDs
+  pca_embeddings$cell_id <- rownames(pca_embeddings)
+  
+  # Reorder columns to put cell_id first
+  pca_embeddings <- pca_embeddings[, c("cell_id", setdiff(colnames(pca_embeddings), "cell_id"))]
+  
+  # Get sample information if available
+  if ("sample" %in% colnames(seurat_obj@meta.data)) {
+    sample_info <- seurat_obj@meta.data[, "sample", drop = FALSE]
+    
+    # Add to embeddings
+    pca_embeddings$sample <- sample_info[rownames(pca_embeddings), "sample"]
+  }
+  
+  # Get cluster information if available
+  if ("seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
+    cluster_info <- seurat_obj@meta.data[, "seurat_clusters", drop = FALSE]
+    
+    # Add to embeddings
+    pca_embeddings$cluster <- cluster_info[rownames(pca_embeddings), "seurat_clusters"]
+  }
+  
+  # Return as a list
+  return(list(
+    summary = pca_summary,
+    embeddings = pca_embeddings
+  ))
+}

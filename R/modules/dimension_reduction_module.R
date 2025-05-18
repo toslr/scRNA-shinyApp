@@ -297,7 +297,10 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       req(processed_seurat(), suggested_dims())
       div(style = "margin-top: 10px; text-align: right;",
           downloadButton(ns("downloadElbowPlot"), "Save Plot", 
-                         class = "btn-sm btn-success"))
+                         class = "btn-sm btn-success"),
+          downloadButton(ns("downloadPCAData"), "Save Data", 
+                         class = "btn-sm btn-success")
+          )
     })
     
     # Download handler for elbow plot
@@ -308,6 +311,52 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       content = function(file) {
         save_elbow_plot(file, processed_seurat(), suggested_dims())
       }
+    )
+    
+    # Download handler for PCA data
+    output$downloadPCAData <- downloadHandler(
+      filename = function() {
+        paste("pca_data_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".zip", sep = "")
+      },
+      content = function(file) {
+        # Create a temporary directory
+        temp_dir <- tempdir()
+        
+        # Define file paths
+        summary_file <- file.path(temp_dir, "pca_summary.csv")
+        embeddings_file <- file.path(temp_dir, "pca_embeddings.csv")
+        
+        # Extract PCA data
+        tryCatch({
+          # Make sure we have data
+          req(processed_seurat())
+          
+          # Extract the data
+          pca_data <- extractPCAData(processed_seurat())
+          
+          if (!is.null(pca_data)) {
+            # Write summary to CSV
+            write.csv(pca_data$summary, summary_file, row.names = FALSE)
+            
+            # Write embeddings to CSV
+            write.csv(pca_data$embeddings, embeddings_file, row.names = FALSE)
+            
+            # Create ZIP file with both CSV files
+            zip(file, c(summary_file, embeddings_file), flags = "-j")
+          } else {
+            # If no PCA data available, create a simple message file
+            message_file <- file.path(temp_dir, "message.txt")
+            writeLines("No PCA data available", message_file)
+            zip(file, message_file, flags = "-j")
+          }
+        }, error = function(e) {
+          # Handle errors
+          message_file <- file.path(temp_dir, "error.txt")
+          writeLines(paste("Error extracting PCA data:", e$message), message_file)
+          zip(file, message_file, flags = "-j")
+        })
+      },
+      contentType = "application/zip"
     )
     
     output$suggestedDims <- renderText({
