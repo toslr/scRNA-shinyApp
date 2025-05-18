@@ -17,7 +17,7 @@ qcUI <- function(id) {
             downloadButton(ns("downloadQCPlot"), "Save Plot", 
                            class = "btn-sm btn-success"),
             downloadButton(ns("downloadQCData"), "Save Data", 
-                           class = "btn-sm btn-success")
+                           class = "btn-sm btn-info")
         ),
         plotOutput(ns("qcPlot"), height = "600px")
     ),
