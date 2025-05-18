@@ -828,3 +828,122 @@ extractPCAData <- function(seurat_obj) {
     embeddings = pca_embeddings
   ))
 }
+
+#' @title Extract UMAP Data for Download
+#' @description Extracts UMAP coordinates and coloring information based on current visualization settings
+#' @param seurat_obj Seurat object containing the data
+#' @param color_by What to color the points by ("cluster", "sample", "gene", or metadata column)
+#' @param reduction UMAP reduction to use ("umap2d" or "umap3d")
+#' @param gene_id Gene ID if coloring by gene expression
+#' @param active_items Optional vector of active items to include (for filtering)
+#' @param cluster_labels Optional named vector of cluster labels
+#' @param sample_labels Optional named vector of sample labels
+#' @param condition_labels Optional named vector of condition labels
+#' @param condition_column Optional name of condition column
+#' @return A data frame containing UMAP coordinates and coloring information
+#' @export
+extractUMAPData <- function(seurat_obj, color_by = "cluster", reduction = "umap2d", 
+                            gene_id = NULL, active_items = NULL,
+                            cluster_labels = NULL, sample_labels = NULL, 
+                            condition_labels = NULL, condition_column = NULL) {
+  
+  # Check if UMAP exists
+  if (!(reduction %in% names(seurat_obj@reductions))) {
+    return(NULL)
+  }
+  
+  # Extract UMAP coordinates
+  umap_coords <- as.data.frame(Embeddings(seurat_obj[[reduction]]))
+  
+  # Rename columns to more descriptive names
+  if (reduction == "umap3d") {
+    colnames(umap_coords) <- c("UMAP_1", "UMAP_2", "UMAP_3")
+  } else {
+    colnames(umap_coords) <- c("UMAP_1", "UMAP_2")
+  }
+  
+  # Add cell IDs
+  umap_coords$cell_id <- rownames(umap_coords)
+  
+  # Reorder columns to put cell_id first
+  umap_coords <- umap_coords[, c("cell_id", setdiff(colnames(umap_coords), "cell_id"))]
+  
+  # Add coloring information based on color_by
+  if (color_by == "cluster" && "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
+    umap_coords$cluster_id <- seurat_obj$seurat_clusters
+    
+    # Add cluster labels if available
+    if (!is.null(cluster_labels) && is.list(cluster_labels)) {
+      umap_coords$cluster_label <- sapply(as.character(umap_coords$cluster_id), function(cluster) {
+        if (cluster %in% names(cluster_labels)) {
+          return(cluster_labels[[cluster]])
+        } else {
+          return(paste("Cluster", cluster))
+        }
+      })
+    }
+  } else if (color_by == "sample" && "sample" %in% colnames(seurat_obj@meta.data)) {
+    umap_coords$sample_id <- seurat_obj$sample
+    
+    # Add sample labels if available
+    if (!is.null(sample_labels) && is.list(sample_labels)) {
+      umap_coords$sample_label <- sapply(as.character(umap_coords$sample_id), function(sample) {
+        if (sample %in% names(sample_labels)) {
+          return(sample_labels[[sample]])
+        } else {
+          return(sample)
+        }
+      })
+    }
+  } else if (color_by == "gene" && !is.null(gene_id) && gene_id %in% rownames(seurat_obj)) {
+    # Extract gene expression
+    gene_expr <- GetAssayData(seurat_obj, slot = "data")[gene_id, ]
+    umap_coords$gene_expression <- gene_expr
+    
+    # Add gene symbol if available
+    if (!is.null(seurat_obj@misc$gene_mapping) && 
+        gene_id %in% names(seurat_obj@misc$gene_mapping) &&
+        !is.na(seurat_obj@misc$gene_mapping[gene_id])) {
+      gene_symbol <- seurat_obj@misc$gene_mapping[gene_id]
+      attr(umap_coords, "gene_symbol") <- gene_symbol
+    } else {
+      attr(umap_coords, "gene_symbol") <- gene_id
+    }
+    attr(umap_coords, "gene_id") <- gene_id
+  } else if (color_by %in% colnames(seurat_obj@meta.data)) {
+    # For other metadata columns
+    col_name <- color_by
+    umap_coords[[col_name]] <- seurat_obj@meta.data[[col_name]]
+    
+    # Add condition labels if this is a condition column
+    if (!is.null(condition_column) && color_by == condition_column && 
+        !is.null(condition_labels) && is.list(condition_labels)) {
+      label_col_name <- paste0(col_name, "_label")
+      umap_coords[[label_col_name]] <- sapply(as.character(umap_coords[[col_name]]), function(condition) {
+        if (condition %in% names(condition_labels)) {
+          return(condition_labels[[condition]])
+        } else {
+          return(condition)
+        }
+      })
+    }
+  }
+  
+  # Add cluster info regardless of coloring if it exists
+  if (!"cluster_id" %in% colnames(umap_coords) && 
+      "seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
+    umap_coords$cluster_id <- seurat_obj$seurat_clusters
+  }
+  
+  # Add sample info regardless of coloring if it exists
+  if (!"sample_id" %in% colnames(umap_coords) && 
+      "sample" %in% colnames(seurat_obj@meta.data)) {
+    umap_coords$sample_id <- seurat_obj$sample
+  }
+  
+  # Store coloring information as an attribute
+  attr(umap_coords, "color_by") <- color_by
+  attr(umap_coords, "reduction") <- reduction
+  
+  return(umap_coords)
+}

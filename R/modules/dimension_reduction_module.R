@@ -299,7 +299,7 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
           downloadButton(ns("downloadElbowPlot"), "Save Plot", 
                          class = "btn-sm btn-success"),
           downloadButton(ns("downloadPCAData"), "Save Data", 
-                         class = "btn-sm btn-success")
+                         class = "btn-sm btn-info")
           )
     })
     
@@ -801,6 +801,7 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
                    # UMAP Visualization
                    div(
                      style = "text-align: right; margin-bottom: 5px;",
+                     downloadButton(ns("downloadLeftUMAPData"), "Download Data", class = "btn-sm btn-info"),
                      downloadButton(ns("downloadLeftUMAP"), "Save Plot", class = "btn-sm btn-success")
                    ),
                    # Plot output based on 2D/3D selection
@@ -850,6 +851,7 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
                    # UMAP Visualization
                    div(
                      style = "text-align: right; margin-bottom: 5px;",
+                     downloadButton(ns("downloadRightUMAPData"), "Download Data", class = "btn-sm btn-info"),
                      downloadButton(ns("downloadRightUMAP"), "Save Plot", class = "btn-sm btn-success")
                    ),
                    # Plot output based on 2D/3D selection
@@ -1808,6 +1810,108 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
       }
     )
     
+    # Download handler for left UMAP data
+    output$downloadLeftUMAPData <- downloadHandler(
+      filename = function() {
+        # Get info about what's being visualized
+        data_type <- values$left_color_by
+        if (data_type == "gene" && !is.null(left_selected_gene())) {
+          data_type <- paste0("gene_", left_selected_gene())
+        }
+        
+        dim_type <- ifelse(values$left_umap_type == "3D", "umap3d", "umap2d")
+        
+        paste0("umap_left_", data_type, "_", dim_type, "_", 
+               format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
+      },
+      content = function(file) {
+        # First, create a filtered Seurat object based on active clusters/samples/conditions
+        filtered_seurat <- values$clustered_seurat
+        
+        # Apply sample filtering if available
+        if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+          cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Apply condition filtering if available
+        if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+            length(values$filtered_conditions) > 0 && 
+            values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+          
+          cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Apply cluster filtering if available
+        if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
+          cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Get active items for item-specific filtering
+        active_items <- get_left_active_items()
+        
+        # Determine reduction to use
+        reduction <- ifelse(values$left_umap_type == "3D", "umap3d", "umap2d")
+        
+        # Get gene ID if applicable
+        gene_id <- NULL
+        if (values$left_color_by == "gene") {
+          gene_id <- left_selected_gene()
+        }
+        
+        # Extract UMAP data based on current visualization settings
+        umap_data <- extractUMAPData(
+          filtered_seurat, 
+          color_by = values$left_color_by,
+          reduction = reduction,
+          gene_id = gene_id,
+          active_items = active_items,
+          cluster_labels = values$cluster_labels,
+          sample_labels = values$sample_labels,
+          condition_labels = values$condition_labels,
+          condition_column = values$condition_column
+        )
+        
+        # Write to CSV
+        if (!is.null(umap_data) && nrow(umap_data) > 0) {
+          # Add metadata header with attributes
+          meta_info <- c(
+            paste0("# UMAP Visualization Data Export"),
+            paste0("# Date: ", Sys.time()),
+            paste0("# Color by: ", values$left_color_by)
+          )
+          
+          # Add gene info if applicable
+          if (values$left_color_by == "gene" && !is.null(gene_id)) {
+            gene_symbol <- attr(umap_data, "gene_symbol")
+            meta_info <- c(meta_info, 
+                           paste0("# Gene ID: ", gene_id),
+                           paste0("# Gene Symbol: ", gene_symbol))
+          }
+          
+          # Write metadata and data
+          con <- file(file, "w")
+          writeLines(meta_info, con)
+          close(con)
+          
+          # Append the data
+          write.table(umap_data, file, sep = ",", row.names = FALSE, col.names = TRUE, 
+                      append = TRUE, quote = TRUE)
+        } else {
+          # Create empty file with message
+          writeLines("No UMAP data available", file)
+        }
+      }
+    )
+    
     output$downloadRightUMAP <- downloadHandler(
       filename = function() {
         suffix <- if (values$right_umap_type == "2D") "png" else "html"
@@ -1928,6 +2032,107 @@ dimensionReductionServer <- function(id, processed_seurat, sample_management = N
                                 active_items = active_items)
           }
           save_plotly(p, file)
+        }
+      }
+    )
+    
+    output$downloadRightUMAPData <- downloadHandler(
+      filename = function() {
+        # Get info about what's being visualized
+        data_type <- values$right_color_by
+        if (data_type == "gene" && !is.null(right_selected_gene())) {
+          data_type <- paste0("gene_", right_selected_gene())
+        }
+        
+        dim_type <- ifelse(values$right_umap_type == "3D", "umap3d", "umap2d")
+        
+        paste0("umap_right_", data_type, "_", dim_type, "_", 
+               format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
+      },
+      content = function(file) {
+        # Similar to left UMAP but using right panel settings
+        filtered_seurat <- values$clustered_seurat
+        
+        # Apply sample filtering if available
+        if (!is.null(values$filtered_samples) && length(values$filtered_samples) > 0) {
+          cells_to_keep <- filtered_seurat$sample %in% values$filtered_samples
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Apply condition filtering if available
+        if (!is.null(values$condition_column) && !is.null(values$filtered_conditions) && 
+            length(values$filtered_conditions) > 0 && 
+            values$condition_column %in% colnames(filtered_seurat@meta.data)) {
+          
+          cells_to_keep <- filtered_seurat@meta.data[[values$condition_column]] %in% values$filtered_conditions
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Apply cluster filtering if available
+        if (!is.null(values$filtered_clusters) && length(values$filtered_clusters) > 0) {
+          cells_to_keep <- filtered_seurat$seurat_clusters %in% values$filtered_clusters
+          if (any(cells_to_keep)) {
+            filtered_seurat <- subset(filtered_seurat, cells = colnames(filtered_seurat)[cells_to_keep])
+          }
+        }
+        
+        # Get active items for item-specific filtering
+        active_items <- get_right_active_items()
+        
+        # Determine reduction to use
+        reduction <- ifelse(values$right_umap_type == "3D", "umap3d", "umap2d")
+        
+        # Get gene ID if applicable
+        gene_id <- NULL
+        if (values$right_color_by == "gene") {
+          gene_id <- right_selected_gene()
+        }
+        
+        # Extract UMAP data based on current visualization settings
+        umap_data <- extractUMAPData(
+          filtered_seurat, 
+          color_by = values$right_color_by,
+          reduction = reduction,
+          gene_id = gene_id,
+          active_items = active_items,
+          cluster_labels = values$cluster_labels,
+          sample_labels = values$sample_labels,
+          condition_labels = values$condition_labels,
+          condition_column = values$condition_column
+        )
+        
+        # Write to CSV
+        if (!is.null(umap_data) && nrow(umap_data) > 0) {
+          # Add metadata header with attributes
+          meta_info <- c(
+            paste0("# UMAP Visualization Data Export"),
+            paste0("# Date: ", Sys.time()),
+            paste0("# Color by: ", values$right_color_by)
+          )
+          
+          # Add gene info if applicable
+          if (values$right_color_by == "gene" && !is.null(gene_id)) {
+            gene_symbol <- attr(umap_data, "gene_symbol")
+            meta_info <- c(meta_info, 
+                           paste0("# Gene ID: ", gene_id),
+                           paste0("# Gene Symbol: ", gene_symbol))
+          }
+          
+          # Write metadata and data
+          con <- file(file, "w")
+          writeLines(meta_info, con)
+          close(con)
+          
+          # Append the data
+          write.table(umap_data, file, sep = ",", row.names = FALSE, col.names = TRUE, 
+                      append = TRUE, quote = TRUE)
+        } else {
+          # Create empty file with message
+          writeLines("No UMAP data available", file)
         }
       }
     )
