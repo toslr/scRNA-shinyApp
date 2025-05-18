@@ -248,3 +248,71 @@ build_qc_status_message <- function(seurat_obj, filtered_samples, filtered_condi
     filter_summary = filter_summary
   ))
 }
+
+#' @title Extract QC Data for Download
+#' @description Extracts QC metrics data from a Seurat object for download
+#' @param seurat_obj Seurat object containing the data
+#' @return A data frame with QC metrics
+#' @keywords internal
+extractQCData <- function(seurat_obj) {
+  # Check which metrics are available
+  metrics <- c()
+  
+  if ("nFeature_RNA" %in% colnames(seurat_obj@meta.data)) {
+    metrics <- c(metrics, "nFeature_RNA")
+  }
+  
+  if ("nCount_RNA" %in% colnames(seurat_obj@meta.data)) {
+    metrics <- c(metrics, "nCount_RNA")
+  }
+  
+  if ("percent.mt" %in% colnames(seurat_obj@meta.data)) {
+    # Handle NA and infinite values
+    if (any(is.na(seurat_obj$percent.mt))) {
+      seurat_obj$percent.mt[is.na(seurat_obj$percent.mt)] <- 0
+    }
+    
+    if (any(is.infinite(seurat_obj$percent.mt))) {
+      seurat_obj$percent.mt[is.infinite(seurat_obj$percent.mt)] <- 0
+    }
+    
+    metrics <- c(metrics, "percent.mt")
+  }
+  
+  # Check if we have sample column
+  if ("sample" %in% colnames(seurat_obj@meta.data)) {
+    sample_col <- "sample"
+  } else {
+    sample_col <- NULL
+  }
+  
+  # Check if we have sample_label column
+  if ("sample_label" %in% colnames(seurat_obj@meta.data)) {
+    sample_label_col <- "sample_label"
+  } else {
+    sample_label_col <- NULL
+  }
+  
+  # Prepare metadata columns to extract
+  metadata_cols <- c(sample_col, sample_label_col)
+  metadata_cols <- metadata_cols[!is.null(metadata_cols)]
+  
+  # Combine all columns
+  all_cols <- c(metadata_cols, metrics)
+  
+  # Extract data
+  if (length(all_cols) > 0) {
+    qc_data <- seurat_obj@meta.data[, all_cols, drop = FALSE]
+    
+    # Add cell ID
+    qc_data$cell_id <- rownames(qc_data)
+    
+    # Reorder columns to put cell_id first
+    qc_data <- qc_data[, c("cell_id", setdiff(colnames(qc_data), "cell_id"))]
+    
+    return(qc_data)
+  } else {
+    # If no valid columns found, return empty data frame
+    return(data.frame())
+  }
+}

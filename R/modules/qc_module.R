@@ -15,6 +15,8 @@ qcUI <- function(id) {
         div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
             h4(style = "margin: 0;", "Quality Control metrics"),
             downloadButton(ns("downloadQCPlot"), "Save Plot", 
+                           class = "btn-sm btn-success"),
+            downloadButton(ns("downloadQCData"), "Save Data", 
                            class = "btn-sm btn-success")
         ),
         plotOutput(ns("qcPlot"), height = "600px")
@@ -188,6 +190,20 @@ qcServer <- function(id, seurat_data, sample_management = NULL, condition_manage
       },
       content = function(file) {
         saveQCPlot(file, qc_plot())
+      }
+    )
+    
+    # Download handler for the QC data
+    output$downloadQCData <- downloadHandler(
+      filename = function() {
+        paste("qc_data_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv", sep = "")
+      },
+      content = function(file) {
+        # Extract the QC data
+        qc_data <- extractQCData(plot_data())
+        
+        # Write to CSV
+        write.csv(qc_data, file, row.names = FALSE)
       }
     )
     

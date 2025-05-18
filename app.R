@@ -32,6 +32,8 @@ source("R/modules/data_input_utils/gene_mapping_utils.R")
 
 # Source qc module
 source("R/modules/qc_module.R")
+source("R/modules/qc_utils/qc_filtering.R")
+source("R/modules/qc_utils/qc_visualization.R")
 
 # Source dimred
 source("R/modules/dimension_reduction_module.R")
