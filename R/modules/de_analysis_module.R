@@ -969,6 +969,92 @@ setupAnalysisHandlers <- function(input, output, clustered_seurat, cluster_manag
     }
   )
   
+  # Download handler for boxplot data
+  output$download_boxplot_data <- downloadHandler(
+    filename = function() {
+      gene_info <- if (!is.null(input$boxplot_gene) && input$boxplot_gene != "") {
+        input$boxplot_gene
+      } else {
+        "gene"
+      }
+      group_by <- input$boxplot_group
+      paste0("gene_expression_", gene_info, "_by_", group_by, "_", 
+             format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
+    },
+    content = function(file) {
+      req(clustered_seurat())
+      
+      # Get the gene ID
+      gene_id <- input$boxplot_gene
+      
+      # Check if gene exists
+      if (is.null(gene_id) || gene_id == "" || !(gene_id %in% rownames(clustered_seurat()))) {
+        write.csv(data.frame(error = "Gene not found in dataset"), file, row.names = FALSE)
+        return()
+      }
+      
+      # Get group variable
+      group_var <- input$boxplot_group
+      
+      # Get active groups for filtering
+      active_groups <- NULL
+      
+      if (group_var == "seurat_clusters") {
+        # Get active clusters from cluster management module
+        if (!is.null(cluster_management) && is.function(cluster_management$getActiveClusterIds)) {
+          active_groups <- cluster_management$getActiveClusterIds()
+        } else {
+          # Fallback - use all clusters
+          active_groups <- unique(clustered_seurat()$seurat_clusters)
+        }
+      } else if (group_var == "sample") {
+        # Get active samples from sample management module
+        if (!is.null(sample_management) && is.function(sample_management$getActiveSampleIds)) {
+          active_groups <- sample_management$getActiveSampleIds()
+        } else {
+          # Fallback - use all samples
+          active_groups <- unique(clustered_seurat()$sample)
+        }
+      } else if (!is.null(condition_management) && 
+                 group_var == condition_management$getConditionColumn()) {
+        # Get active conditions from condition management module
+        active_groups <- condition_management$getActiveConditions()
+      }
+      
+      # Extract boxplot data
+      boxplot_data <- extractBoxplotData(
+        clustered_seurat(),
+        gene_id = gene_id,
+        group_by = group_var,
+        active_groups = active_groups
+      )
+      
+      if (!is.null(boxplot_data) && nrow(boxplot_data) > 0) {
+        # Add metadata header with attributes
+        meta_info <- c(
+          paste0("# Gene Expression Data Export"),
+          paste0("# Date: ", Sys.time()),
+          paste0("# Gene ID: ", attr(boxplot_data, "gene_id")),
+          paste0("# Gene Symbol: ", attr(boxplot_data, "gene_symbol")),
+          paste0("# Grouped by: ", attr(boxplot_data, "group_by"))
+        )
+        
+        # Write metadata and data
+        con <- file(file, "w")
+        writeLines(meta_info, con)
+        close(con)
+        
+        # Append the data
+        write.table(boxplot_data, file, sep = ",", row.names = FALSE, col.names = TRUE, 
+                    append = TRUE, quote = TRUE)
+      } else {
+        # Create empty file with message
+        write.csv(data.frame(error = "No expression data available for this gene"), 
+                  file, row.names = FALSE)
+      }
+    }
+  )
+  
   # Generate the boxplot with improved error handling
   output$gene_boxplot <- renderPlot({
     req(clustered_seurat())
@@ -1867,6 +1953,8 @@ renderDEResultsUI <- function(ns, state, clustered_seurat, condition_column = NU
       if (!is.null(filter_context_ui)) filter_context_ui,
       div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
           h4(style = "margin: 0;", "Volcano Plot"),
+          downloadButton(ns("downloadVolcanoData"), "Download Data", 
+                         class = "btn-sm btn-info"),
           downloadButton(ns("downloadVolcanoPlot"), "Save Plot", 
                          class = "btn-sm btn-success")
       ),
@@ -1897,8 +1985,13 @@ renderDEResultsUI <- function(ns, state, clustered_seurat, condition_column = NU
       div(style = "display: flex; justify-content: space-between; align-items: center; margin: 20px 0 10px 0;",
           h4(style = "margin: 0;", "Expression Heatmap"),
           if (has_heatmap) {
-            downloadButton(ns("downloadHeatmapPlot"), "Save Plot", 
-                           class = "btn-sm btn-success")
+            div(
+              style = "display: flex; gap: 10px;",
+              downloadButton(ns("downloadHeatmapData"), "Download Data", 
+                             class = "btn-sm btn-info"),
+              downloadButton(ns("downloadHeatmapPlot"), "Save Plot", 
+                             class = "btn-sm btn-success")
+            )
           }
       ),
       plotOutput(ns("heatmapPlot"), height = "600px"),
@@ -1985,6 +2078,8 @@ renderGeneralHeatmapUI <- function(ns, state, active_cluster_list) {
   ui_elements <- list(
     div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
         h3(style = "margin: 0;", heatmap_title),
+        downloadButton(ns("downloadGeneralHeatmapData"), "Download Data", 
+                       class = "btn-sm btn-info"),
         downloadButton(ns("downloadGeneralHeatmapPlot"), "Save Plot", 
                        class = "btn-sm btn-success")
     )
@@ -2201,6 +2296,242 @@ setupHeatmapDownloadHandlers <- function(output, state, clustered_seurat, active
       dev.off()
     }
   )
+  
+  # Download handler for volcano plot data
+  output$downloadVolcanoData <- downloadHandler(
+    filename = function() {
+      paste("volcano_data_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv", sep = "")
+    },
+    content = function(file) {
+      # Extract the volcano plot data
+      req(state$de_genes())
+      
+      volcano_data <- extractVolcanoData(state$de_genes())
+      
+      if (!is.null(volcano_data)) {
+        # Write to CSV
+        write.csv(volcano_data, file, row.names = FALSE)
+      } else {
+        # Create a simple message if no data available
+        write.csv(data.frame(message = "No volcano plot data available"), file, row.names = FALSE)
+      }
+    }
+  )
+  
+  # Download handler for heatmap data
+  output$downloadHeatmapData <- downloadHandler(
+    filename = function() {
+      paste("heatmap_data_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".zip", sep = "")
+    },
+    content = function(file) {
+      req(state$heatmap_data(), state$heatmap_type() == "specific", clustered_seurat())
+      
+      # Create temp directory for files
+      temp_dir <- tempdir()
+      raw_file <- file.path(temp_dir, "heatmap_raw_expression.csv")
+      scaled_file <- file.path(temp_dir, "heatmap_scaled_expression.csv")
+      genes_file <- file.path(temp_dir, "heatmap_genes_list.csv")
+      readme_file <- file.path(temp_dir, "README.txt")
+      
+      # Get cluster labels
+      cluster_labels <- if (!is.null(state$cluster_labels)) {
+        state$cluster_labels
+      } else if (!is.null(cluster_management)) {
+        tryCatch({
+          cluster_management$getClusterLabels()
+        }, error = function(e) {
+          NULL
+        })
+      } else {
+        NULL
+      }
+      
+      # Get active clusters
+      active_clusters <- tryCatch({
+        if (is.function(active_cluster_list)) {
+          as.numeric(active_cluster_list())
+        } else {
+          NULL
+        }
+      }, error = function(e) {
+        NULL
+      })
+      
+      # Determine grouping variable
+      group_by <- "seurat_clusters"  # Default
+      if (!is.null(state$group_by)) {
+        group_by <- state$group_by
+      }
+      
+      # Extract the heatmap data
+      heatmap_data <- extractHeatmapData(
+        clustered_seurat(),
+        state$heatmap_data(),
+        group_by = group_by,
+        cluster_labels = cluster_labels,
+        active_groups = active_clusters
+      )
+      
+      if (!is.null(heatmap_data)) {
+        # Write raw expression data
+        write.csv(heatmap_data$raw_data, raw_file)
+        
+        # Write scaled expression data
+        write.csv(heatmap_data$scaled_data, scaled_file)
+        
+        # Write genes list with symbols
+        gene_info <- data.frame(
+          gene_id = heatmap_data$genes,
+          gene_symbol = heatmap_data$gene_symbols
+        )
+        write.csv(gene_info, genes_file, row.names = FALSE)
+        
+        # Create README file
+        readme_text <- c(
+          "Heatmap Data Export",
+          "===================",
+          "",
+          paste("Date:", Sys.time()),
+          paste("Group by:", heatmap_data$group_by),
+          paste("Number of genes:", length(heatmap_data$genes)),
+          paste("Number of groups:", length(heatmap_data$groups)),
+          "",
+          "Files included:",
+          "- heatmap_raw_expression.csv: Raw expression values (averages by group)",
+          "- heatmap_scaled_expression.csv: Scaled expression values used in heatmap visualization",
+          "- heatmap_genes_list.csv: List of genes with their symbols"
+        )
+        writeLines(readme_text, readme_file)
+        
+        # Create ZIP file
+        zip(file, c(raw_file, scaled_file, genes_file, readme_file), flags = "-j")
+      } else {
+        # Create a simple message if no data available
+        message_file <- file.path(temp_dir, "message.txt")
+        writeLines("No heatmap data available", message_file)
+        zip(file, message_file, flags = "-j")
+      }
+    },
+    contentType = "application/zip"
+  )
+  
+  # Download handler for general heatmap data
+  output$downloadGeneralHeatmapData <- downloadHandler(
+    filename = function() {
+      prefix <- switch(state$analysis_state(),
+                       "general_heatmap" = "cluster",
+                       "sample_heatmap" = "sample",
+                       "condition_heatmap" = "condition",
+                       "general")
+      
+      paste(prefix, "_heatmap_data_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".zip", sep = "")
+    },
+    content = function(file) {
+      req(state$general_heatmap_genes(), clustered_seurat())
+      
+      # Create temp directory for files
+      temp_dir <- tempdir()
+      raw_file <- file.path(temp_dir, "heatmap_raw_expression.csv")
+      scaled_file <- file.path(temp_dir, "heatmap_scaled_expression.csv")
+      genes_file <- file.path(temp_dir, "heatmap_genes_list.csv")
+      readme_file <- file.path(temp_dir, "README.txt")
+      
+      # Determine grouping and get appropriate labels and active items
+      group_by <- "seurat_clusters"
+      labels <- NULL
+      active_items <- NULL
+      current_state <- state$analysis_state()
+      
+      if (current_state == "general_heatmap") {
+        # Cluster-based heatmap
+        group_by <- "seurat_clusters"
+        labels <- cluster_management$getClusterLabels()
+        active_items <- as.numeric(active_cluster_list())
+      } else if (current_state == "sample_heatmap") {
+        # Sample-based heatmap
+        group_by <- "sample"
+        if (!is.null(sample_management) && is.function(sample_management$getSampleLabels)) {
+          labels <- sample_management$getSampleLabels()
+        }
+        if (!is.null(sample_management) && is.function(sample_management$getActiveSampleIds)) {
+          active_items <- sample_management$getActiveSampleIds()
+        }
+      } else if (current_state == "condition_heatmap") {
+        # Condition-based heatmap
+        if (!is.null(condition_management) && is.function(condition_management$getConditionColumn)) {
+          group_by <- condition_management$getConditionColumn()
+        }
+        if (!is.null(condition_management) && is.function(condition_management$getConditionLabels)) {
+          labels <- condition_management$getConditionLabels()
+        }
+        if (!is.null(condition_management) && is.function(condition_management$getActiveConditions)) {
+          active_items <- condition_management$getActiveConditions()
+        }
+      }
+      
+      # Extract the heatmap data
+      heatmap_data <- extractHeatmapData(
+        clustered_seurat(),
+        state$general_heatmap_genes(),
+        group_by = group_by,
+        cluster_labels = labels,
+        active_groups = active_items
+      )
+      
+      if (!is.null(heatmap_data)) {
+        # Write raw expression data
+        write.csv(heatmap_data$raw_data, raw_file)
+        
+        # Write scaled expression data
+        write.csv(heatmap_data$scaled_data, scaled_file)
+        
+        # Write genes list with symbols
+        gene_info <- data.frame(
+          gene_id = heatmap_data$genes,
+          gene_symbol = heatmap_data$gene_symbols
+        )
+        write.csv(gene_info, genes_file, row.names = FALSE)
+        
+        # Create README file
+        group_type <- switch(current_state,
+                             "general_heatmap" = "clusters",
+                             "sample_heatmap" = "samples",
+                             "condition_heatmap" = "conditions",
+                             "groups")
+        
+        readme_text <- c(
+          paste("General", toTitleCase(group_type), "Heatmap Data Export"),
+          "===========================================",
+          "",
+          paste("Date:", Sys.time()),
+          paste("Group by:", heatmap_data$group_by),
+          paste("Number of genes:", length(heatmap_data$genes)),
+          paste("Number of groups:", length(heatmap_data$groups)),
+          "",
+          "Files included:",
+          "- heatmap_raw_expression.csv: Raw expression values (averages by group)",
+          "- heatmap_scaled_expression.csv: Scaled expression values used in heatmap visualization",
+          "- heatmap_genes_list.csv: List of genes with their symbols"
+        )
+        writeLines(readme_text, readme_file)
+        
+        # Create ZIP file
+        zip(file, c(raw_file, scaled_file, genes_file, readme_file), flags = "-j")
+      } else {
+        # Create a simple message if no data available
+        message_file <- file.path(temp_dir, "message.txt")
+        writeLines("No heatmap data available", message_file)
+        zip(file, message_file, flags = "-j")
+      }
+    },
+    contentType = "application/zip"
+  )
+  
+  # Helper function for title case conversion
+  toTitleCase <- function(x) {
+    s <- strsplit(x, " ")[[1]]
+    paste(toupper(substring(s, 1, 1)), substring(s, 2), sep = "", collapse = " ")
+  }
 }
 
 # Additional helper functions for DE analysis UI components
@@ -2591,15 +2922,21 @@ createBoxplotUI <- function(ns, de_results, seurat_obj, active_clusters, cluster
       )
     ),
     fluidRow(
-      column(6,
+      column(4,
              checkboxInput(ns("boxplot_stats"), 
                            "Show statistical comparisons", 
                            value = TRUE)
       ),
-      column(6,
-             downloadButton(ns("download_boxplot"), 
-                            "Download Plot", 
-                            class = "btn-sm btn-success")
+      column(8,
+             div(
+               style = "display: flex; justify-content: flex-end; gap: 10px;",
+               downloadButton(ns("download_boxplot_data"), 
+                              "Download Data", 
+                              class = "btn-sm btn-info"),
+               downloadButton(ns("download_boxplot"), 
+                              "Download Plot", 
+                              class = "btn-sm btn-success")
+             )
       )
     ),
     fluidRow(

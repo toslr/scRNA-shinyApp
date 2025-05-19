@@ -631,3 +631,205 @@ createExpressionBoxplot <- function(seurat_obj, gene_id, group_by = "seurat_clus
   
   return(p)
 }
+
+#' @title Extract Volcano Plot Data
+#' @description Extracts data used in a volcano plot for download
+#' @param results Data frame containing differential expression results
+#' @return Data frame formatted for volcano plot
+#' @export
+extractVolcanoData <- function(results) {
+  if (is.null(results) || nrow(results) == 0) {
+    return(NULL)
+  }
+  
+  # Create a data frame with the relevant columns
+  volcano_data <- data.frame(
+    gene_id = rownames(results),
+    gene_symbol = results$gene,
+    avg_log2FC = results$avg_log2FC,
+    p_value = results$p_val,
+    adjusted_p_value = results$p_val_adj,
+    significant = (abs(results$avg_log2FC) > 0.25 & results$p_val_adj < 0.05),
+    comparison = results$comparison
+  )
+  
+  # Add other useful columns if they exist
+  if ("pct.1" %in% colnames(results)) {
+    volcano_data$pct_1 = results$pct.1
+  }
+  if ("pct.2" %in% colnames(results)) {
+    volcano_data$pct_2 = results$pct.2
+  }
+  
+  return(volcano_data)
+}
+
+#' @title Extract Heatmap Expression Data
+#' @description Extracts expression data used in a heatmap for download
+#' @param seurat_obj Seurat object containing the data
+#' @param genes Vector of genes included in the heatmap
+#' @param group_by Metadata column to group by (e.g., "seurat_clusters", "sample")
+#' @param cluster_labels Optional named vector of cluster labels
+#' @param active_groups Optional vector of active groups to include
+#' @return List containing scaled and raw expression data
+#' @export
+extractHeatmapData <- function(seurat_obj, genes, group_by = "seurat_clusters", 
+                               cluster_labels = NULL, active_groups = NULL) {
+  if (is.null(genes) || length(genes) == 0) {
+    return(NULL)
+  }
+  
+  # Ensure all genes are in the Seurat object
+  genes_present <- intersect(genes, rownames(seurat_obj))
+  if (length(genes_present) == 0) {
+    return(NULL)
+  }
+  
+  # Get expression data for genes that exist in the dataset
+  expr_data <- GetAssayData(seurat_obj, slot = "data")[genes_present, , drop = FALSE]
+  
+  # Get grouping information
+  if (group_by == "seurat_clusters") {
+    groups <- seurat_obj$seurat_clusters
+    unique_groups <- sort(unique(groups))
+  } else if (group_by == "sample") {
+    groups <- seurat_obj$sample
+    unique_groups <- unique(groups)
+  } else if (group_by %in% colnames(seurat_obj@meta.data)) {
+    groups <- seurat_obj@meta.data[[group_by]]
+    unique_groups <- unique(groups)
+  } else {
+    # Fallback to clusters
+    group_by <- "seurat_clusters"
+    groups <- seurat_obj$seurat_clusters
+    unique_groups <- sort(unique(groups))
+  }
+  
+  # Filter by active groups if provided
+  if (!is.null(active_groups) && length(active_groups) > 0) {
+    unique_groups <- intersect(as.character(unique_groups), as.character(active_groups))
+  }
+  
+  # Calculate means by group
+  group_means <- sapply(unique_groups, function(group) {
+    group_cells <- which(groups == group)
+    if (length(group_cells) > 0) {
+      rowMeans(expr_data[, group_cells, drop = FALSE])
+    } else {
+      rep(NA, nrow(expr_data))
+    }
+  })
+  
+  # Set column names using provided labels
+  col_names <- sapply(unique_groups, function(x) {
+    group_key <- as.character(x)
+    if (!is.null(cluster_labels) && group_key %in% names(cluster_labels)) {
+      cluster_labels[[group_key]]
+    } else {
+      if (group_by == "seurat_clusters") {
+        paste("Cluster", x)
+      } else if (group_by == "sample") {
+        paste("Sample", x)
+      } else {
+        paste("Group", x)
+      }
+    }
+  })
+  colnames(group_means) <- col_names
+  
+  # Calculate scaled data
+  scaled_data <- NULL
+  if (is.matrix(group_means) && nrow(group_means) > 1 && ncol(group_means) > 1) {
+    scaled_data <- t(scale(t(group_means)))
+  } else {
+    scaled_data <- group_means
+  }
+  
+  # Get gene symbols if available
+  gene_mapping <- seurat_obj@misc$gene_mapping
+  gene_symbols <- NULL
+  if (!is.null(gene_mapping)) {
+    gene_symbols <- gene_mapping[genes_present]
+    gene_symbols[is.na(gene_symbols)] <- genes_present[is.na(gene_symbols)]
+  } else {
+    gene_symbols <- genes_present
+  }
+  
+  # Create result object
+  result <- list(
+    raw_data = as.data.frame(group_means),
+    scaled_data = as.data.frame(scaled_data),
+    genes = genes_present,
+    gene_symbols = gene_symbols,
+    group_by = group_by,
+    groups = unique_groups
+  )
+  
+  return(result)
+}
+
+#' @title Extract Gene Expression Boxplot Data
+#' @description Extracts gene expression data used in a boxplot for download
+#' @param seurat_obj Seurat object containing the data
+#' @param gene_id String ID of the gene being visualized
+#' @param group_by String metadata column to group by
+#' @param active_groups Optional vector of active groups to include
+#' @return A data frame with expression values and grouping information
+#' @export
+extractBoxplotData <- function(seurat_obj, gene_id, group_by = "seurat_clusters", active_groups = NULL) {
+  # Check if gene exists
+  if (!(gene_id %in% rownames(seurat_obj))) {
+    return(NULL)
+  }
+  
+  # Get gene symbol if available
+  gene_symbol <- if (!is.null(seurat_obj@misc$gene_mapping) && 
+                     gene_id %in% names(seurat_obj@misc$gene_mapping) &&
+                     !is.na(seurat_obj@misc$gene_mapping[gene_id])) {
+    seurat_obj@misc$gene_mapping[gene_id]
+  } else {
+    gene_id
+  }
+  
+  # Get expression values
+  expr_values <- GetAssayData(seurat_obj, slot = "data")[gene_id, ]
+  
+  # Get grouping information
+  if (!(group_by %in% colnames(seurat_obj@meta.data))) {
+    return(NULL)
+  }
+  
+  # Extract group values for each cell
+  group_values <- seurat_obj@meta.data[[group_by]]
+  
+  # Create data frame with expression and group information
+  plot_data <- data.frame(
+    cell_id = names(expr_values),
+    expression = as.numeric(expr_values),
+    group = group_values,
+    stringsAsFactors = FALSE
+  )
+  
+  # Filter by active groups if provided
+  if (!is.null(active_groups) && length(active_groups) > 0) {
+    active_groups <- as.character(active_groups)
+    plot_data <- plot_data[plot_data$group %in% active_groups, ]
+  }
+  
+  # Add sample info if available
+  if ("sample" %in% colnames(seurat_obj@meta.data)) {
+    plot_data$sample <- seurat_obj@meta.data[plot_data$cell_id, "sample"]
+  }
+  
+  # Add cluster info if available and not already included
+  if ("seurat_clusters" %in% colnames(seurat_obj@meta.data) && group_by != "seurat_clusters") {
+    plot_data$cluster <- seurat_obj@meta.data[plot_data$cell_id, "seurat_clusters"]
+  }
+  
+  # Add metadata
+  attr(plot_data, "gene_id") <- gene_id
+  attr(plot_data, "gene_symbol") <- gene_symbol
+  attr(plot_data, "group_by") <- group_by
+  
+  return(plot_data)
+}
