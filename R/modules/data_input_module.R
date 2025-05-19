@@ -152,47 +152,68 @@ dataInputServer <- function(id, volumes = NULL, metadata_module) {
           processing_status("Looking for files in the selected directory")
           all_files <- list.files(selected_dir())
           
-          # Only process selected GSMs
+          # Only process selected samples - enhanced for custom metadata
           selected_files <- character(0)
           file_to_gsm <- list()
           file_formats <- list()
           
-          for(gsm in selected_samples) {
-            processing_status(paste("Detecting file format for", gsm))
+          for(sample_id in selected_samples) {
+            processing_status(paste("Detecting file format for", sample_id))
             
             # Determine file format type
-            format_type <- Detect_File_Format_Type(selected_dir(), gsm)
+            format_type <- Detect_File_Format_Type(selected_dir(), sample_id)
             
             if (format_type == "unknown") {
-              processing_status(paste("Warning: No supported files found for", gsm))
-              next
-            }
-            
-            processing_status(paste("Found", format_type, "format for", gsm))
-            
-            if (format_type == "txt.gz") {
-              # For text files, find matching files
-              pattern <- paste0("^", gsm)
-              matches <- grep(pattern, all_files, value=TRUE)
+              # Try checking for files that might contain the sample ID
+              matching_files <- grep(sample_id, all_files, value=TRUE)
               
-              for(match in matches) {
-                selected_files <- c(selected_files, match)
-                file_to_gsm[[match]] <- gsm
-                file_formats[[match]] <- format_type
+              if (length(matching_files) > 0) {
+                # Check if any of the matching files have a known format
+                for (match_file in matching_files) {
+                  match_format <- Detect_File_Format(match_file)
+                  if (match_format != "unknown") {
+                    format_type <- match_format
+                    processing_status(paste("Found", format_type, "format for", sample_id))
+                    
+                    selected_files <- c(selected_files, match_file)
+                    file_to_gsm[[match_file]] <- sample_id
+                    file_formats[[match_file]] <- format_type
+                    break
+                  }
+                }
+              }
+              
+              if (format_type == "unknown") {
+                processing_status(paste("Warning: No supported files found for", sample_id))
+                next
               }
             } else {
-              # For H5 or MTX formats, just use the GSM ID
-              selected_files <- c(selected_files, gsm)
-              file_to_gsm[[gsm]] <- gsm
-              file_formats[[gsm]] <- format_type
+              processing_status(paste("Found", format_type, "format for", sample_id))
+              
+              if (format_type == "txt.gz") {
+                # For text files, find matching files
+                pattern <- paste0("^", sample_id)
+                matches <- grep(pattern, all_files, value=TRUE)
+                
+                for(match in matches) {
+                  selected_files <- c(selected_files, match)
+                  file_to_gsm[[match]] <- sample_id
+                  file_formats[[match]] <- format_type
+                }
+              } else {
+                # For H5 or MTX formats, just use the sample ID
+                selected_files <- c(selected_files, sample_id)
+                file_to_gsm[[sample_id]] <- sample_id
+                file_formats[[sample_id]] <- format_type
+              }
             }
           }
           
-          processing_status(paste("Found", length(selected_files), "files for selected GSMs"))
+          processing_status(paste("Found", length(selected_files), "files for selected samples"))
           
           if(length(selected_files) == 0) {
-            processing_status("No matching files found for selected GSMs")
-            stop("No matching files found for selected GSMs")
+            processing_status("No matching files found for selected samples")
+            stop("No matching files found for selected samples")
           }
           
           # Initialize list for all Seurat objects
@@ -222,9 +243,6 @@ dataInputServer <- function(id, volumes = NULL, metadata_module) {
             # Preserve important information from first object
             gene_mapping_to_preserve <- seurat_objects[[1]]@misc$gene_mapping
             species_to_preserve <- seurat_objects[[1]]$species[1]
-            
-            # Get object names for adding cell IDs
-            object_names <- names(seurat_objects)
             
             # Note: cell names already have GSM prefixes, so we don't need add.cell.ids
             # Using merge with proper checking to avoid cell name conflicts
@@ -279,7 +297,7 @@ dataInputServer <- function(id, volumes = NULL, metadata_module) {
 #' @description Creates Seurat objects from data files, adding metadata and gene mappings.
 #' @param dir_path Path to the directory containing data files
 #' @param selected_files Character vector of selected file names to process
-#' @param file_to_gsm Mapping of file names to GSM IDs
+#' @param file_to_gsm Mapping of file names to sample IDs
 #' @param file_formats Mapping of file names to format types
 #' @param gene_mapping Named vector for mapping Ensembl IDs to gene names
 #' @param metadata_module Metadata module instance for accessing metadata information
@@ -307,20 +325,20 @@ createSeuratObjects <- function(dir_path, selected_files, file_to_gsm, file_form
     data <- Read_Data_File(dir_path, file)
     
     if(length(data) > 0 && !is.null(data[[1]])) {
-      gsm <- file_to_gsm[[file]]
-      processing_status(paste("Creating Seurat object for sample", gsm))
+      sample_id <- file_to_gsm[[file]]
+      processing_status(paste("Creating Seurat object for sample", sample_id))
       
       # Create a Seurat object with proper cell naming to avoid conflicts
-      # Add GSM prefix to cell names to ensure uniqueness across samples
+      # Add sample prefix to cell names to ensure uniqueness across samples
       cell_names <- colnames(data[[1]])
-      new_cell_names <- paste0(gsm, "_", cell_names)
+      new_cell_names <- paste0(sample_id, "_", cell_names)
       colnames(data[[1]]) <- new_cell_names
       
       # Create Seurat object with the modified cell names
-      seurat <- CreateSeuratObject(counts = data[[1]], project = gsm)
+      seurat <- CreateSeuratObject(counts = data[[1]], project = sample_id)
       
       # Add sample identifier
-      seurat$sample <- gsm
+      seurat$sample <- sample_id
       
       # Detect species if auto mode
       if (selected_species == "auto" && is.null(detected_species)) {
@@ -331,14 +349,33 @@ createSeuratObjects <- function(dir_path, selected_files, file_to_gsm, file_form
         selected_species <- detected_species
       }
       
-      # Add GEO metadata if available
+      # Add metadata if available
       meta_func <- metadata_module$getMetadata
       if (!is.null(meta_func)) {
         metadata_data <- meta_func()
         if (!is.null(metadata_data)) {
-          sample_meta <- metadata_data[metadata_data$geo_accession == gsm, ]
-          for(col in setdiff(colnames(sample_meta), "geo_accession")) {
-            seurat[[col]] <- sample_meta[[col]][1]
+          # Try to find metadata row matching this sample
+          sample_meta <- NULL
+          
+          # First check geo_accession column
+          if ("geo_accession" %in% colnames(metadata_data)) {
+            sample_meta <- metadata_data[metadata_data$geo_accession == sample_id, ]
+          }
+          
+          # If not found, try sample_id column
+          if ((is.null(sample_meta) || nrow(sample_meta) == 0) && 
+              "sample_id" %in% colnames(metadata_data)) {
+            sample_meta <- metadata_data[metadata_data$sample_id == sample_id, ]
+          }
+          
+          # If we found metadata, add all columns to the Seurat object
+          if (!is.null(sample_meta) && nrow(sample_meta) > 0) {
+            for(col in colnames(sample_meta)) {
+              # Skip special columns that would conflict with existing data
+              if (!col %in% c("sample")) {
+                seurat[[col]] <- sample_meta[[col]][1]
+              }
+            }
           }
         }
       }
@@ -350,9 +387,9 @@ createSeuratObjects <- function(dir_path, selected_files, file_to_gsm, file_form
       seurat <- Calculate_MT_Percent(seurat, species = selected_species)
       
       seurat@misc$gene_mapping <- gene_mapping
-      seurat_objects[[gsm]] <- seurat
+      seurat_objects[[sample_id]] <- seurat
       
-      processing_status(paste("Successfully created Seurat object for", gsm,
+      processing_status(paste("Successfully created Seurat object for", sample_id,
                               "with", ncol(seurat), "cells and", nrow(seurat), "genes"))
     } else {
       processing_status(paste("Warning: No data found for", file))
